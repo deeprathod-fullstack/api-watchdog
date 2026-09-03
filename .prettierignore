@@ -1,0 +1,9 @@
+dist
+node_modules
+coverage
+package-lock.json
+.claude
+*.docx
+
+# Prose is hand-wrapped; let Prettier reflow code, not documentation.
+*.md
