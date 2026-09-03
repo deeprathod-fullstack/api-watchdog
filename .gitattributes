@@ -1,0 +1,6 @@
+# Normalize line endings to LF in the repository.
+# Development happens on Windows; containers and CI run Linux. Committed CRLF
+# breaks shell scripts inside Docker images and creates noisy diffs.
+* text=auto eol=lf
+
+*.docx binary
