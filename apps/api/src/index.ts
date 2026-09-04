@@ -3,9 +3,13 @@ import { createServer } from 'node:http';
 import { loadConfig, loadDotenv } from '@api-watchdog/shared';
 
 import { createApp } from './app.js';
+import { createCheckClient } from './checks/http-client.js';
+import { resolveSafely, systemResolver } from './checks/safe-lookup.js';
+import { guardUrl } from './checks/url-guard.js';
 import { getPool, closePool } from './db/pool.js';
 import {
   createAuthRateLimiter,
+  createManualCheckRateLimiter,
   createMonitorRateLimiter,
 } from './middleware/rate-limit.js';
 
@@ -20,12 +24,27 @@ const config = loadConfig();
 
 const db = getPool(config);
 
+/**
+ * The production SSRF pipeline, assembled once.
+ *
+ * The real static policy, the real resolver, and a client built over both.
+ * There is no configuration path to a permissive variant of any of the three.
+ */
+const resolve = (hostname: string) => resolveSafely(hostname, systemResolver);
+const checkExecutor = {
+  guard: guardUrl,
+  resolve,
+  client: createCheckClient({ resolve }),
+};
+
 const server = createServer(
   createApp({
     config,
     db,
     authRateLimiter: createAuthRateLimiter(),
     monitorRateLimiter: createMonitorRateLimiter(),
+    manualCheckRateLimiter: createManualCheckRateLimiter(),
+    checkExecutor,
   }),
 );
 

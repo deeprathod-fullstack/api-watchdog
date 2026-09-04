@@ -4,6 +4,7 @@ import type pg from 'pg';
 import { type Config } from '@api-watchdog/shared';
 
 import { createAuthRouter } from './auth/routes.js';
+import type { CheckExecutor } from './checks/service.js';
 import { createMonitorsRouter } from './monitors/routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { healthRouter } from './routes/health.js';
@@ -22,6 +23,16 @@ export interface AppDependencies {
   authRateLimiter: RequestHandler;
   /** Applied to monitor creation; injected so tests can bypass it. */
   monitorRateLimiter: RequestHandler;
+  /** Applied to manual checks; stricter, and injected for the same reason. */
+  manualCheckRateLimiter: RequestHandler;
+  /**
+   * The guard, resolver and HTTP client a manual check runs through.
+   *
+   * Injected so tests can point the same pipeline at a local server. The
+   * production triple is assembled in the process entry point, and no
+   * environment variable selects between them.
+   */
+  checkExecutor: CheckExecutor;
 }
 
 /**
@@ -36,6 +47,8 @@ export function createApp({
   db,
   authRateLimiter,
   monitorRateLimiter,
+  manualCheckRateLimiter,
+  checkExecutor,
 }: AppDependencies): Express {
   const app = express();
 
@@ -47,7 +60,15 @@ export function createApp({
 
   app.use(healthRouter);
   app.use(createAuthRouter(db, config, authRateLimiter));
-  app.use(createMonitorsRouter(db, config, monitorRateLimiter));
+  app.use(
+    createMonitorsRouter({
+      db,
+      config,
+      createRateLimiter: monitorRateLimiter,
+      manualCheckRateLimiter,
+      checkExecutor,
+    }),
+  );
 
   // Order matters: unmatched routes become 404s, then all errors funnel into
   // the single error handler, which must be registered last.

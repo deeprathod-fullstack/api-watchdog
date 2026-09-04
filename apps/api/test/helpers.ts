@@ -7,6 +7,7 @@ import request from 'supertest';
 import { type Config, loadConfig, loadDotenv } from '@api-watchdog/shared';
 
 import { createApp } from '../src/app.js';
+import type { CheckExecutor } from '../src/checks/service.js';
 import { createPool } from '../src/db/pool.js';
 
 loadDotenv();
@@ -38,12 +39,43 @@ const passthroughRateLimiter: RequestHandler = (_req, _res, next) => {
   next();
 };
 
-export function buildTestApp(config: Config, db: pg.Pool): Express {
+/**
+ * An executor that refuses to run.
+ *
+ * Tests that never call the check endpoint still have to construct the app, and
+ * a stub that throws makes an accidental outbound attempt loud instead of
+ * silent.
+ */
+const unusedExecutor: CheckExecutor = {
+  guard: () => {
+    throw new Error('check executor used unexpectedly');
+  },
+  resolve: () => {
+    throw new Error('check executor used unexpectedly');
+  },
+  client: () => {
+    throw new Error('check executor used unexpectedly');
+  },
+};
+
+export interface TestAppOverrides {
+  checkExecutor?: CheckExecutor;
+  manualCheckRateLimiter?: RequestHandler;
+}
+
+export function buildTestApp(
+  config: Config,
+  db: pg.Pool,
+  overrides: TestAppOverrides = {},
+): Express {
   return createApp({
     config,
     db,
     authRateLimiter: passthroughRateLimiter,
     monitorRateLimiter: passthroughRateLimiter,
+    manualCheckRateLimiter:
+      overrides.manualCheckRateLimiter ?? passthroughRateLimiter,
+    checkExecutor: overrides.checkExecutor ?? unusedExecutor,
   });
 }
 

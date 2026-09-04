@@ -148,15 +148,28 @@ export async function resolveSafely(
   return { ok: true, addresses: answers };
 }
 
-/** The callback shape Node's `lookup` option is called with. */
+/**
+ * The callback shape Node's `lookup` option is called with.
+ *
+ * Matched to Node's own signature deliberately, so the hook can be handed to
+ * `http.request` with no cast. A type assertion here would be the wrong tool:
+ * if our shape and Node's ever diverge, the hook silently errors at runtime
+ * and the socket falls back to ordinary, unvalidated resolution.
+ */
 type LookupCallback = (
   error: Error | null,
-  addressOrAddresses?: string | readonly ResolvedAddress[],
+  address: string | { address: string; family: number }[],
   family?: number,
 ) => void;
 
 interface LookupOptions {
-  readonly family?: number;
+  /**
+   * Node passes either the number 4/6 or the strings 'IPv4'/'IPv6' here, so
+   * both spellings must be understood. Treating an unrecognised value as "no
+   * filter" would hand back an address of the wrong family; treating a
+   * *recognised* one as unrecognised would skip the filter entirely.
+   */
+  readonly family?: number | 'IPv4' | 'IPv6';
   readonly all?: boolean;
   readonly hints?: number;
 }
@@ -167,6 +180,28 @@ export type LookupHook = (
   options: LookupOptions,
   callback: LookupCallback,
 ) => void;
+
+/**
+ * A resolver-style failure.
+ *
+ * Node returns early when the error argument is set, so the address and family
+ * it is handed are never read; they are present only to satisfy the callback's
+ * signature.
+ */
+function lookupError(message: string): Error {
+  const error: Error & { code?: string } = new Error(message);
+  error.code = 'ENOTFOUND';
+  return error;
+}
+
+/** Accept both spellings Node uses for an address family. */
+function normaliseFamily(
+  family: number | 'IPv4' | 'IPv6' | undefined,
+): 4 | 6 | undefined {
+  if (family === 4 || family === 'IPv4') return 4;
+  if (family === 6 || family === 'IPv6') return 6;
+  return undefined;
+}
 
 /**
  * Build the `lookup` hook a socket will use, pinned to already-validated
@@ -188,30 +223,49 @@ export function pinnedLookup(
   const pinned = [...addresses];
 
   return (_hostname, options, callback) => {
-    const wanted =
-      options.family === 4 || options.family === 6
-        ? pinned.filter((entry) => entry.family === options.family)
-        : pinned;
+    // Everything below runs inside Node's `emitLookup`, on the socket's stack.
+    // An exception thrown here does not fail the request — it escapes as an
+    // uncaught exception and takes the process down (verified against Node
+    // v24). Converting any unexpected throw into a lookup error keeps a
+    // surprise here to one failed check instead of a downed API. It cannot
+    // widen what we connect to: the only thing this hands back is an error.
+    try {
+      const family = normaliseFamily(options.family);
+      const wanted =
+        family === undefined
+          ? pinned
+          : pinned.filter((entry) => entry.family === family);
 
-    const first = wanted[0];
+      const first = wanted[0];
 
-    if (!first) {
-      // No validated address of the family the socket asked for. Reported the
-      // way a resolver reports "nothing to connect to", never by widening the
-      // set we approved.
-      const error: Error & { code?: string } = new Error(
-        'no validated address for the requested family',
-      );
-      error.code = 'ENOTFOUND';
-      callback(error);
-      return;
+      if (!first) {
+        // No validated address of the family the socket asked for. Reported
+        // the way a resolver reports "nothing to connect to", never by
+        // widening the set we approved.
+        //
+        // This branch is load-bearing beyond correctness: handing Node an
+        // empty array instead makes it throw inside `node:net` and crash the
+        // process, which a target with an IPv6-only validated set could
+        // otherwise trigger remotely.
+        callback(
+          lookupError('no validated address for the requested family'),
+          '',
+          0,
+        );
+        return;
+      }
+
+      if (options.all === true) {
+        callback(null, wanted);
+        return;
+      }
+
+      callback(null, first.address, first.family);
+    } catch {
+      // The original error is deliberately discarded rather than forwarded:
+      // nothing about our internals belongs on a socket error a caller may
+      // classify or store.
+      callback(lookupError('pinned lookup failed'), '', 0);
     }
-
-    if (options.all === true) {
-      callback(null, wanted);
-      return;
-    }
-
-    callback(null, first.address, first.family);
   };
 }

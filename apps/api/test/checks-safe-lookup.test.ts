@@ -208,11 +208,11 @@ describe('pinnedLookup — the socket cannot resolve again', () => {
   /** Invoke the hook the way Node does, and capture the callback arguments. */
   function invoke(
     hook: ReturnType<typeof pinnedLookup>,
-    options: { family?: number; all?: boolean },
+    options: { family?: number | 'IPv4' | 'IPv6'; all?: boolean },
   ) {
     return new Promise<{
       error: Error | null;
-      value?: string | readonly ResolvedAddress[];
+      value?: string | readonly { address: string; family: number }[];
       family?: number;
     }>((resolve) => {
       hook('example.com', options, (error, value, family) => {
@@ -283,6 +283,22 @@ describe('pinnedLookup — the socket cannot resolve again', () => {
     ]);
   });
 
+  it('understands both spellings Node uses for a family', async () => {
+    // Node passes 4/6 or 'IPv4'/'IPv6' depending on the call site. Ignoring the
+    // string form would return an address of the wrong family to the socket.
+    const hook = pinnedLookup([PUBLIC_V6, PUBLIC_V4]);
+
+    expect((await invoke(hook, { family: 'IPv4', all: true })).value).toEqual([
+      PUBLIC_V4,
+    ]);
+    expect((await invoke(hook, { family: 'IPv6', all: true })).value).toEqual([
+      PUBLIC_V6,
+    ]);
+    expect((await invoke(hook, { family: 'IPv4' })).value).toBe(
+      '93.184.216.34',
+    );
+  });
+
   it('fails rather than inventing an address when no family matches', async () => {
     const hook = pinnedLookup([PUBLIC_V4]);
 
@@ -290,7 +306,41 @@ describe('pinnedLookup — the socket cannot resolve again', () => {
 
     expect(result.error).toBeInstanceOf(Error);
     expect((result.error as Error & { code?: string }).code).toBe('ENOTFOUND');
-    expect(result.value).toBeUndefined();
+    // No address is offered alongside the error, so nothing outside the
+    // approved set can be picked up by a caller that ignores it.
+    expect(result.value).toBe('');
+  });
+
+  it('converts an unexpected exception into a lookup error', async () => {
+    // An exception thrown inside the hook escapes on the socket's stack and
+    // crashes the process rather than failing the request, so the hook must
+    // never let one out. A frozen array whose `filter` throws stands in for
+    // any unforeseen internal fault.
+    // The element's `family` getter throws when the family filter reads it,
+    // which happens inside the hook rather than at construction.
+    const poisoned = [
+      {
+        address: '93.184.216.34',
+        get family(): 4 {
+          throw new Error('unexpected internal fault');
+        },
+      },
+    ] as unknown as ResolvedAddress[];
+
+    const hookOverPoisoned = pinnedLookup(poisoned);
+
+    // A healthy hook is unaffected...
+    expect(
+      (await invoke(pinnedLookup([PUBLIC_V4]), { all: true })).value,
+    ).toEqual([PUBLIC_V4]);
+
+    // ...and the faulty one reports an error instead of throwing.
+    const result = await invoke(hookOverPoisoned, { family: 4, all: true });
+
+    expect(result.error).toBeInstanceOf(Error);
+    expect((result.error as Error & { code?: string }).code).toBe('ENOTFOUND');
+    // The internal message is not forwarded onto the socket error.
+    expect(result.error?.message).not.toContain('unexpected internal fault');
   });
 
   it('ignores the hostname it is given', async () => {
