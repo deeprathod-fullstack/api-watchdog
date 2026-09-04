@@ -3,6 +3,8 @@ import { createServer } from 'node:http';
 import { loadConfig, loadDotenv } from '@api-watchdog/shared';
 
 import { createApp } from './app.js';
+import { getPool, closePool } from './db/pool.js';
+import { createAuthRateLimiter } from './middleware/rate-limit.js';
 
 /** Grace period for in-flight requests before the process is forced down. */
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -13,7 +15,11 @@ loadDotenv();
 // traffic, so that a bad deploy is reported as failed rather than serving 500s.
 const config = loadConfig();
 
-const server = createServer(createApp());
+const db = getPool(config);
+
+const server = createServer(
+  createApp({ config, db, authRateLimiter: createAuthRateLimiter() }),
+);
 
 server.listen(config.PORT, () => {
   console.log(`api listening on port ${config.PORT} (env: ${config.NODE_ENV})`);
@@ -38,13 +44,26 @@ function shutdown(signal: string): void {
   forceExit.unref();
 
   server.close((err) => {
-    clearTimeout(forceExit);
     if (err) {
+      clearTimeout(forceExit);
       console.error('Error during shutdown:', err);
       process.exit(1);
     }
-    console.log('Shutdown complete');
-    process.exit(0);
+
+    // Release database connections last: the process keeps sockets open and
+    // will not exit on its own until the pool is drained.
+    void closePool().then(
+      () => {
+        clearTimeout(forceExit);
+        console.log('Shutdown complete');
+        process.exit(0);
+      },
+      (poolError: unknown) => {
+        clearTimeout(forceExit);
+        console.error('Error closing the database pool:', poolError);
+        process.exit(1);
+      },
+    );
   });
 }
 

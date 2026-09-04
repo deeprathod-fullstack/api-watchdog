@@ -45,6 +45,18 @@ export const configSchema = z.object({
    * scaled-out deployment exhausting the database.
    */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+
+  /**
+   * Signing key for API access tokens (HS256).
+   *
+   * Validated here, so a deployment with a missing or weak secret fails at
+   * startup rather than at the first login attempt. HS256 security is exactly
+   * the entropy of this string: a short secret is brute-forceable offline from
+   * a single captured token, and anyone who recovers it can mint a token for
+   * any user id. 32 characters is the floor, not a target — generate it with
+   * `openssl rand -base64 48`, never by hand.
+   */
+  JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),
 });
 
 export type Config = Readonly<z.infer<typeof configSchema>>;

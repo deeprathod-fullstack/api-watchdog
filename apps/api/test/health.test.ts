@@ -2,9 +2,12 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { createApp } from '../src/app.js';
+import { buildTestApp, testConfig, testPool } from './helpers.js';
 
-const app = createApp();
+const config = testConfig();
+// The health route touches no dependency, but the app now needs a pool to be
+// built. It is never queried here, so no connection is ever opened.
+const app = buildTestApp(config, testPool(config));
 
 /**
  * The contract `/health` promises to its consumers (Docker HEALTHCHECK, and
