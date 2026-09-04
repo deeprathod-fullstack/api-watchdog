@@ -4,9 +4,15 @@ import { z } from 'zod';
 
 import { type Config } from '@api-watchdog/shared';
 
+import {
+  type CheckExecutor,
+  runManualCheck,
+  toCheckResultResponse,
+} from '../checks/service.js';
 import { NotFoundError, UnauthenticatedError } from '../errors.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import { parseBody } from '../validation.js';
+import { findMonitor } from './repository.js';
 import { createMonitorSchema, patchMonitorSchema } from './schemas.js';
 import {
   createMonitor,
@@ -56,11 +62,24 @@ function monitorId(req: Request): string {
  * "which resource" differs in every statement, so it lives in each query's
  * `WHERE` clause instead — see the repository.
  */
-export function createMonitorsRouter(
-  db: pg.Pool,
-  config: Config,
-  createRateLimiter: RequestHandler,
-): Router {
+export interface MonitorsRouterDependencies {
+  db: pg.Pool;
+  config: Config;
+  /** Applied to monitor creation. */
+  createRateLimiter: RequestHandler;
+  /** Applied to manual checks; deliberately stricter. */
+  manualCheckRateLimiter: RequestHandler;
+  /** The guard, resolver and HTTP client a manual check runs through. */
+  checkExecutor: CheckExecutor;
+}
+
+export function createMonitorsRouter({
+  db,
+  config,
+  createRateLimiter,
+  manualCheckRateLimiter,
+  checkExecutor,
+}: MonitorsRouterDependencies): Router {
   const router = Router();
 
   router.use('/api/monitors', requireAuth(db, config));
@@ -103,6 +122,38 @@ export function createMonitorsRouter(
 
     res.status(204).end();
   });
+
+  /**
+   * Run one check now and store the result.
+   *
+   * A 200 means the check operation ran and was persisted — not that the
+   * monitored endpoint was healthy. Reporting a failed target as 502 or 504
+   * would conflate our API's health with theirs and make the frontend's error
+   * handling lie.
+   *
+   * The rate limiter is the first thing in this chain, so it runs before the
+   * database read and long before any outbound packet.
+   */
+  router.post(
+    '/api/monitors/:id/check',
+    manualCheckRateLimiter,
+    async (req, res) => {
+      const userId = callerId(req);
+      const id = monitorId(req);
+
+      const monitor = await findMonitor(db, userId, id);
+      // 404, not 403: a monitor belonging to someone else must be
+      // indistinguishable from one that does not exist.
+      if (!monitor) throw new NotFoundError('Monitor not found');
+
+      // `monitor.active` is deliberately not consulted: pausing stops the
+      // future scheduler, and checking a paused monitor by hand is the main
+      // reason this endpoint exists.
+      const check = await runManualCheck(db, checkExecutor, monitor, userId);
+
+      res.status(200).json({ check: toCheckResultResponse(check) });
+    },
+  );
 
   return router;
 }

@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { RequestHandler } from 'express';
 
 /**
@@ -54,6 +54,38 @@ export function createMonitorRateLimiter(): RequestHandler {
       error: {
         code: 'rate_limited',
         message: 'Too many requests, please try again later',
+      },
+    },
+  });
+}
+
+/**
+ * Rate limiter for manual "check now" requests.
+ *
+ * Much tighter than monitor creation, because this is the endpoint that turns
+ * one authenticated call into one outbound request to a host the caller chose.
+ * That makes it a traffic amplifier and a denial-of-service-by-proxy vector
+ * with our IP as the apparent source, so the ceiling is set by what we could
+ * defend to an abuse desk rather than by what feels convenient: 10 checks per
+ * 5 minutes is two a minute, ample for a human debugging a monitor.
+ *
+ * Keyed per user, not per IP: IP keying pools everyone behind one NAT into a
+ * shared bucket, letting one user starve the rest. The IP fallback is only ever
+ * reached by unauthenticated traffic, which `requireAuth` has already rejected
+ * before this middleware runs.
+ */
+export function createManualCheckRateLimiter(): RequestHandler {
+  return rateLimit({
+    windowMs: 5 * 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    keyGenerator: (request) =>
+      request.auth?.userId ?? ipKeyGenerator(request.ip ?? ''),
+    message: {
+      error: {
+        code: 'rate_limited',
+        message: 'Too many manual checks, please try again later',
       },
     },
   });
