@@ -4,7 +4,10 @@ import { loadConfig, loadDotenv } from '@api-watchdog/shared';
 
 import { createApp } from './app.js';
 import { getPool, closePool } from './db/pool.js';
-import { createAuthRateLimiter } from './middleware/rate-limit.js';
+import {
+  createAuthRateLimiter,
+  createMonitorRateLimiter,
+} from './middleware/rate-limit.js';
 
 /** Grace period for in-flight requests before the process is forced down. */
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -18,7 +21,12 @@ const config = loadConfig();
 const db = getPool(config);
 
 const server = createServer(
-  createApp({ config, db, authRateLimiter: createAuthRateLimiter() }),
+  createApp({
+    config,
+    db,
+    authRateLimiter: createAuthRateLimiter(),
+    monitorRateLimiter: createMonitorRateLimiter(),
+  }),
 );
 
 server.listen(config.PORT, () => {
