@@ -13,6 +13,38 @@ export const configSchema = z.object({
     .default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+
+  /**
+   * Full PostgreSQL connection string, e.g.
+   * `postgresql://user:password@host:5432/database`.
+   *
+   * A single URL rather than five separate variables: it is the format every
+   * managed provider hands out (RDS, Heroku, Neon), so deployment means
+   * pasting one secret instead of decomposing and reassembling it.
+   */
+  DATABASE_URL: z
+    .string()
+    .min(1)
+    .refine(
+      (value) => {
+        try {
+          const { protocol } = new URL(value);
+          return protocol === 'postgres:' || protocol === 'postgresql:';
+        } catch {
+          return false;
+        }
+      },
+      { message: 'must be a postgres:// or postgresql:// URL' },
+    ),
+
+  /**
+   * Maximum connections this process keeps open to PostgreSQL.
+   *
+   * Every process (api, worker) holds its own pool, and PostgreSQL enforces a
+   * server-wide `max_connections`. Sizing this per process is how we avoid a
+   * scaled-out deployment exhausting the database.
+   */
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 });
 
 export type Config = Readonly<z.infer<typeof configSchema>>;
