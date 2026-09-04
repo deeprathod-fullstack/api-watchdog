@@ -4,6 +4,7 @@ import type pg from 'pg';
 import { type Config } from '@api-watchdog/shared';
 
 import { createAuthRouter } from './auth/routes.js';
+import { createMonitorsRouter } from './monitors/routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { healthRouter } from './routes/health.js';
 
@@ -19,6 +20,8 @@ export interface AppDependencies {
   db: pg.Pool;
   /** Applied to the credential endpoints; injected so tests can bypass it. */
   authRateLimiter: RequestHandler;
+  /** Applied to monitor creation; injected so tests can bypass it. */
+  monitorRateLimiter: RequestHandler;
 }
 
 /**
@@ -32,6 +35,7 @@ export function createApp({
   config,
   db,
   authRateLimiter,
+  monitorRateLimiter,
 }: AppDependencies): Express {
   const app = express();
 
@@ -43,6 +47,7 @@ export function createApp({
 
   app.use(healthRouter);
   app.use(createAuthRouter(db, config, authRateLimiter));
+  app.use(createMonitorsRouter(db, config, monitorRateLimiter));
 
   // Order matters: unmatched routes become 404s, then all errors funnel into
   // the single error handler, which must be registered last.

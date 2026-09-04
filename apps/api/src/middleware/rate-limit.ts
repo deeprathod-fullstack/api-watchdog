@@ -34,3 +34,27 @@ export function createAuthRateLimiter(): RequestHandler {
     },
   });
 }
+
+/**
+ * Rate limiter for monitor creation.
+ *
+ * Looser than the credential limiter — creating monitors is normal use, not a
+ * credential guess — but not unlimited: each monitor is recurring outbound
+ * traffic we will generate against a third party, so unmetered creation makes
+ * this service a convenient traffic amplifier. The per-user cap bounds the
+ * total; this bounds the rate of getting there.
+ */
+export function createMonitorRateLimiter(): RequestHandler {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 30,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: {
+      error: {
+        code: 'rate_limited',
+        message: 'Too many requests, please try again later',
+      },
+    },
+  });
+}
