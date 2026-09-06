@@ -2,7 +2,11 @@ import type pg from 'pg';
 
 import { NotFoundError } from '../errors.js';
 import type { Monitor } from '../monitors/repository.js';
-import { type CheckAttempt, classifyCheck } from './classify.js';
+import {
+  type CheckAttempt,
+  type ClassifiedCheck,
+  classifyCheck,
+} from './classify.js';
 import type {
   CheckOutcome,
   CheckRequest,
@@ -60,6 +64,25 @@ export function toCheckResultResponse(check: CheckResult): CheckResultResponse {
 }
 
 /**
+ * The allowlisted projection of a check that may be logged.
+ *
+ * A closed shape rather than a loose object, so the only way to add a field to
+ * a log line is to add it here, deliberately, in the one place where the rule
+ * about what must never be logged is written down.
+ */
+export interface CheckLogFields {
+  monitorId: string;
+  /** Absent for a scheduled check: the worker's trust boundary is a monitor. */
+  userId?: string;
+  hostname: string;
+  outcome: string;
+  errorType: string | null;
+  elapsedMs: number;
+  /** What the check did to the monitor's incident state, when it ran one. */
+  incident?: string;
+}
+
+/**
  * Log one line per check, from an allowlisted projection.
  *
  * Only these fields, ever. The monitor object, its URL, its headers, any header
@@ -70,16 +93,9 @@ export function toCheckResultResponse(check: CheckResult): CheckResultResponse {
  * A blocked address is logged at warn: a rise in those is a security signal
  * worth seeing, not routine noise.
  */
-function logCheck(fields: {
-  monitorId: string;
-  userId: string;
-  hostname: string;
-  outcome: string;
-  errorType: string | null;
-  elapsedMs: number;
-}): void {
+export function logCheck(event: string, fields: CheckLogFields): void {
   // TODO(phase-4): replace with structured logging once that is introduced.
-  const line = JSON.stringify({ event: 'manual_check', ...fields });
+  const line = JSON.stringify({ event, ...fields });
 
   if (fields.errorType === 'blocked_address') {
     console.warn(line);
@@ -90,52 +106,44 @@ function logCheck(fields: {
 }
 
 /**
- * Execute and persist a manual check for a monitor the caller already owns.
+ * What `executeCheck` needs from a monitor.
  *
- * Authentication, ownership and rate limiting happen before this is called;
- * `monitor` is the row from the owner-scoped query. A paused monitor is checked
- * normally — pause governs the future scheduler, not this endpoint.
+ * Named separately from `Monitor` so the shape of the contract is visible: a
+ * URL, a budget, the headers to send, and the status that counts as healthy.
+ * Ownership, name and schedule are none of the pipeline's business.
  */
-export async function runManualCheck(
-  db: pg.Pool,
+export interface CheckableMonitor {
+  readonly url: string;
+  readonly expectedStatus: number;
+  readonly timeoutMs: number;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
+/**
+ * Run one check and classify it. No database, no logging, no side effects.
+ *
+ * This is the whole of "check a monitor", shared verbatim by the manual
+ * endpoint and the background worker. Having exactly one of these is the point:
+ * the SSRF gate, the timeout, the redirect policy and the classification table
+ * cannot be right on one path and wrong on the other, because there is only one
+ * path. A second HTTP checker written for the worker would be a second place
+ * for the guard to be forgotten.
+ *
+ * What the two callers differ in is what they do with the result — the endpoint
+ * stores a row, the worker stores a row and moves an incident — and that
+ * difference is theirs, not this function's.
+ */
+export async function executeCheck(
   executor: CheckExecutor,
-  monitor: Monitor,
-  userId: string,
-): Promise<CheckResult> {
+  monitor: CheckableMonitor,
+): Promise<ClassifiedCheck> {
   const start = process.hrtime.bigint();
   const elapsedMs = (): number =>
     Number(process.hrtime.bigint() - start) / 1_000_000;
 
   const attempt = await attemptCheck();
 
-  const classified = classifyCheck(
-    attempt,
-    monitor.expectedStatus,
-    monitor.timeoutMs,
-  );
-
-  let stored: CheckResult;
-  try {
-    stored = await insertCheckResult(db, monitor.id, classified);
-  } catch (error) {
-    if (error instanceof MonitorGoneError) {
-      throw new NotFoundError('Monitor not found');
-    }
-    throw error;
-  }
-
-  logCheck({
-    monitorId: monitor.id,
-    userId,
-    // The hostname only; never the full URL, whose path and query are the
-    // user's and which a regressed guard could carry credentials in.
-    hostname: hostnameOf(monitor.url),
-    outcome: classified.status,
-    errorType: classified.errorType,
-    elapsedMs: classified.responseTimeMs,
-  });
-
-  return stored;
+  return classifyCheck(attempt, monitor.expectedStatus, monitor.timeoutMs);
 
   /** Walk the pipeline, stopping at the first stage that refuses. */
   async function attemptCheck(): Promise<CheckAttempt> {
@@ -163,8 +171,47 @@ export async function runManualCheck(
   }
 }
 
+/**
+ * Execute and persist a manual check for a monitor the caller already owns.
+ *
+ * Authentication, ownership and rate limiting happen before this is called;
+ * `monitor` is the row from the owner-scoped query. A paused monitor is checked
+ * normally — pause governs the future scheduler, not this endpoint.
+ */
+export async function runManualCheck(
+  db: pg.Pool,
+  executor: CheckExecutor,
+  monitor: Monitor,
+  userId: string,
+): Promise<CheckResult> {
+  const classified = await executeCheck(executor, monitor);
+
+  let stored: CheckResult;
+  try {
+    stored = await insertCheckResult(db, monitor.id, classified);
+  } catch (error) {
+    if (error instanceof MonitorGoneError) {
+      throw new NotFoundError('Monitor not found');
+    }
+    throw error;
+  }
+
+  logCheck('manual_check', {
+    monitorId: monitor.id,
+    userId,
+    // The hostname only; never the full URL, whose path and query are the
+    // user's and which a regressed guard could carry credentials in.
+    hostname: hostnameOf(monitor.url),
+    outcome: classified.status,
+    errorType: classified.errorType,
+    elapsedMs: classified.responseTimeMs,
+  });
+
+  return stored;
+}
+
 /** Best-effort hostname for the log line; never throws on a bad URL. */
-function hostnameOf(url: string): string {
+export function hostnameOf(url: string): string {
   try {
     return new URL(url).hostname;
   } catch {

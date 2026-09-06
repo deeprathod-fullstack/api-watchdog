@@ -201,6 +201,38 @@ export async function findMonitor(
   return row ? toMonitor(row) : null;
 }
 
+/**
+ * Fetch a monitor by id alone, with no owner scope.
+ *
+ * The one query in the system that deliberately has no `user_id` in its
+ * predicate, and the only caller is the background worker.
+ *
+ * That is not a hole in the ownership model, it is where the model ends. A
+ * scheduled job is not made on anybody's behalf: there is no request, no token
+ * and no caller to authorise. What the worker has is a monitor id it put into
+ * the queue itself, and this function is how it turns that id back into the
+ * current row. Nothing this returns is ever serialised to an HTTP response —
+ * every user-facing read goes through {@link findMonitor}, which is scoped.
+ *
+ * Reloading rather than trusting the job payload is the other half of it. A
+ * queued job can be minutes old, so the row is re-read on every execution and
+ * the monitor's URL, headers, timeout and paused state are always current.
+ */
+export async function findMonitorById(
+  db: pg.Pool,
+  monitorId: string,
+): Promise<Monitor | null> {
+  const result = await db.query<MonitorRow>(
+    `SELECT ${RETURNED_COLUMNS}
+       FROM monitors
+      WHERE id = $1`,
+    [monitorId],
+  );
+
+  const row = result.rows[0];
+  return row ? toMonitor(row) : null;
+}
+
 /** Request field -> column, and the only source of column names in an UPDATE. */
 const PATCHABLE_COLUMNS = {
   name: 'name',

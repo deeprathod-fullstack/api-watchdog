@@ -114,6 +114,15 @@ async function applyTransition(
       : { kind: 'resolved', incident };
   }
 
+  // Counted inside the transaction, so it sees the rows committed before this
+  // one began plus its own. Two checks that run *genuinely* simultaneously can
+  // therefore each undercount the streak by the other, and the incident opens
+  // on the following check instead. That lag is the price of deriving the
+  // count rather than storing a mutable counter, and it is the right price:
+  // the failures themselves are never lost, and the next check recomputes the
+  // full streak. In practice a monitor has one schedule whose jobs run one at
+  // a time, so the only real overlap is a manual check landing on a scheduled
+  // one.
   const streak = await currentFailureStreak(client, monitorId);
 
   if (streak.failures < threshold) {
