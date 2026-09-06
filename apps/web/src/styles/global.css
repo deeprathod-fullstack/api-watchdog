@@ -370,6 +370,13 @@ a:hover {
   color: var(--text-secondary);
 }
 
+.page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  flex: none;
+}
+
 .page__actions-group {
   display: flex;
   flex-wrap: wrap;
@@ -654,6 +661,10 @@ select.field__input {
   box-shadow: var(--shadow-sm);
   text-align: center;
   color: var(--text-muted);
+}
+
+.section .state {
+  padding: var(--sp-5);
 }
 
 .state--error {
