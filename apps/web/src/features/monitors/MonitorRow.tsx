@@ -122,12 +122,14 @@ export function MonitorRow({
           <p className="monitor__url">{monitor.url}</p>
         </div>
 
-        <p
-          className={`monitor__state monitor__state--${
-            monitor.active ? 'active' : 'paused'
-          }`}
-        >
-          {monitor.active ? 'Active' : 'Paused'}
+        {/* The same badge vocabulary the dashboard and history use, so
+            "Paused" looks and reads identically wherever it appears. */}
+        <p className="monitor__state">
+          <span
+            className={`badge badge--${monitor.active ? 'active' : 'paused'}`}
+          >
+            {monitor.active ? 'Active' : 'Paused'}
+          </span>
         </p>
       </div>
 

@@ -65,9 +65,10 @@ describe('monitor list', () => {
     renderMonitors([jsonResponse(200, { monitors: [] })]);
 
     expect(await screen.findByText('No monitors yet')).toBeTruthy();
+    // The same label as everywhere else that starts this journey.
     expect(
-      screen.getByRole('link', { name: /create your first monitor/i }),
-    ).toBeTruthy();
+      screen.getAllByRole('link', { name: 'Add monitor' }).length,
+    ).toBeGreaterThan(0);
   });
 
   it('reports a failed load and can retry it', async () => {

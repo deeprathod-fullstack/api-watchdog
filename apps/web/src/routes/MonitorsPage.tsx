@@ -22,7 +22,7 @@ export function MonitorsPage() {
       description="Endpoints this account is watching."
       actions={
         <Link className="button button--primary" to={paths.monitorNew}>
-          New monitor
+          Add monitor
         </Link>
       }
     >
@@ -42,7 +42,7 @@ export function MonitorsPage() {
           message="Add a public GET endpoint and API Watchdog will check it on a schedule."
           action={
             <Link className="button button--primary" to={paths.monitorNew}>
-              Create your first monitor
+              Add monitor
             </Link>
           }
         />
