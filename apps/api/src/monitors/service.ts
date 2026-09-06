@@ -4,7 +4,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
 import type { CheckScheduler } from '../queue/scheduler.js';
 import {
   deleteMonitor,
-  findMonitor,
+  findMonitorById,
   insertMonitor,
   listMonitors,
   MonitorConstraintError,
@@ -161,7 +161,7 @@ export async function getMonitor(
   userId: string,
   monitorId: string,
 ): Promise<MonitorResponse> {
-  const monitor = await findMonitor(db, userId, monitorId);
+  const monitor = await findMonitorById(db, userId, monitorId);
 
   if (!monitor) throw new NotFoundError('Monitor not found');
 

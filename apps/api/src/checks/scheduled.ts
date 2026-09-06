@@ -1,7 +1,7 @@
 import type pg from 'pg';
 
 import { recordCheck } from '../incidents/engine.js';
-import { findMonitorById } from '../monitors/repository.js';
+import { findMonitorForWorker } from '../monitors/repository.js';
 import { MonitorGoneError } from './repository.js';
 import {
   type CheckExecutor,
@@ -42,7 +42,7 @@ export async function runScheduledCheck(
   executor: CheckExecutor,
   monitorId: string,
 ): Promise<ScheduledCheckOutcome> {
-  const monitor = await findMonitorById(db, monitorId);
+  const monitor = await findMonitorForWorker(db, monitorId);
 
   // The monitor was deleted between the job being scheduled and being run. Not
   // an error: the schedule is removed on delete, and a job already in flight

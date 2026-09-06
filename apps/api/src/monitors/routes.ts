@@ -16,7 +16,7 @@ import { requireAuth } from '../middleware/require-auth.js';
 import type { CheckScheduler } from '../queue/scheduler.js';
 import { parseBody, parseQuery } from '../validation.js';
 import { pageQuerySchema, toIncidentResponse } from './history.js';
-import { findMonitor } from './repository.js';
+import { findMonitorById } from './repository.js';
 import { createMonitorSchema, patchMonitorSchema } from './schemas.js';
 import {
   createMonitor,
@@ -149,7 +149,7 @@ export function createMonitorsRouter({
       const userId = callerId(req);
       const id = monitorId(req);
 
-      const monitor = await findMonitor(db, userId, id);
+      const monitor = await findMonitorById(db, userId, id);
       // 404, not 403: a monitor belonging to someone else must be
       // indistinguishable from one that does not exist.
       if (!monitor) throw new NotFoundError('Monitor not found');
@@ -177,7 +177,7 @@ export function createMonitorsRouter({
     const id = monitorId(req);
     const { limit, offset } = parseQuery(pageQuerySchema, req.query);
 
-    const monitor = await findMonitor(db, userId, id);
+    const monitor = await findMonitorById(db, userId, id);
     if (!monitor) throw new NotFoundError('Monitor not found');
 
     const checks = await listCheckResults(db, id, limit, offset);
@@ -197,7 +197,7 @@ export function createMonitorsRouter({
     const id = monitorId(req);
     const { limit, offset } = parseQuery(pageQuerySchema, req.query);
 
-    const monitor = await findMonitor(db, userId, id);
+    const monitor = await findMonitorById(db, userId, id);
     if (!monitor) throw new NotFoundError('Monitor not found');
 
     const incidents = await listIncidents(db, userId, id, limit, offset);
