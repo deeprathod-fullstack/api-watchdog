@@ -164,6 +164,7 @@ export function MonitorHistoryPage() {
             title="Could not load check history"
             message={checks.error ?? 'Something went wrong. Please try again.'}
             onRetry={checks.refresh}
+            headingLevel={3}
           />
         ) : null}
 
@@ -175,6 +176,7 @@ export function MonitorHistoryPage() {
                 ? 'There are no more checks beyond this point.'
                 : 'Scheduled checks begin at this monitor’s interval, or you can run one now from the Monitors page.'
             }
+            headingLevel={3}
           />
         ) : null}
 
@@ -213,6 +215,7 @@ export function MonitorHistoryPage() {
               incidents.error ?? 'Something went wrong. Please try again.'
             }
             onRetry={incidents.refresh}
+            headingLevel={3}
           />
         ) : null}
 
@@ -224,6 +227,7 @@ export function MonitorHistoryPage() {
                 ? 'There are no more incidents beyond this point.'
                 : 'An incident opens after this monitor fails several scheduled checks in a row.'
             }
+            headingLevel={3}
           />
         ) : null}
 

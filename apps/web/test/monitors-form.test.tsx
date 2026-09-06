@@ -48,7 +48,11 @@ describe('create monitor', () => {
 
     const method = screen.getByLabelText(/method/i);
     expect(method).toHaveProperty('value', 'GET');
-    expect(method).toHaveProperty('disabled', true);
+    // Read-only rather than disabled: a disabled input is skipped by the
+    // keyboard and by most screen readers, which would hide the one field
+    // that explains the V1 constraint.
+    expect(method).toHaveProperty('readOnly', true);
+    expect(method).toHaveProperty('disabled', false);
 
     // Defaults that match the backend's own.
     expect(screen.getByLabelText(/expected status/i)).toHaveProperty(

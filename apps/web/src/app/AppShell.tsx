@@ -23,6 +23,12 @@ export function AppShell() {
 
   return (
     <div className="shell">
+      {/* First thing in the tab order: a keyboard user should not have to
+          walk the whole header on every page to reach the content. */}
+      <a className="skip-link" href="#main">
+        Skip to main content
+      </a>
+
       <header className="shell__header">
         <Link className="shell__brand" to={paths.dashboard}>
           API Watchdog
@@ -50,7 +56,7 @@ export function AppShell() {
         </div>
       </header>
 
-      <main className="shell__main" id="main">
+      <main className="shell__main" id="main" tabIndex={-1}>
         <Outlet />
       </main>
     </div>

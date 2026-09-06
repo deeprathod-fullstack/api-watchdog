@@ -34,6 +34,7 @@ export function OpenIncidents({ monitors }: OpenIncidentsProps) {
       <EmptyState
         title="No open incidents"
         message="Every monitor with a recorded check is either passing or has not failed often enough to open one."
+        headingLevel={3}
       />
     );
   }
