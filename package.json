@@ -16,6 +16,7 @@
     "build": "tsc -b",
     "clean": "tsc -b --clean",
     "dev": "npm run build -w @api-watchdog/shared && npm run dev -w @api-watchdog/api",
+    "dev:worker": "npm run build -w @api-watchdog/shared && npm run dev:worker -w @api-watchdog/api",
     "dev:web": "npm run dev -w @api-watchdog/web",
     "build:web": "npm run build -w @api-watchdog/web",
     "db:migrate": "node --env-file-if-exists=.env node_modules/node-pg-migrate/bin/node-pg-migrate.js up",

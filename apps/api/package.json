@@ -5,11 +5,11 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
     "build": "tsc -b",
     "clean": "tsc -b --clean",
     "start": "node dist/index.js",
-    "dev:worker": "tsx watch src/worker.ts",
+    "dev:worker": "tsx watch --env-file-if-exists=../../.env src/worker.ts",
     "start:worker": "node dist/worker.js"
   },
   "dependencies": {
