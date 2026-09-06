@@ -8,8 +8,11 @@ import { monitorErrorMessage } from '../features/monitors/error-messages.js';
 import * as monitorsApi from '../features/monitors/monitors-api.js';
 import type { CreateMonitorInput } from '../features/monitors/types.js';
 import { api } from '../lib/api.js';
+import { useDocumentTitle } from '../app/useDocumentTitle.js';
 
 export function NewMonitorPage() {
+  useDocumentTitle('Add monitor');
+
   const navigate = useNavigate();
   const [submitError, setSubmitError] = useState<string | null>(null);
 

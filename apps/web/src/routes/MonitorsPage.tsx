@@ -5,6 +5,7 @@ import { EmptyState, ErrorState, Loading } from '../components/states.js';
 import { MonitorRow } from '../features/monitors/MonitorRow.js';
 import { useMonitors } from '../features/monitors/useMonitors.js';
 import { paths } from '../app/paths.js';
+import { useDocumentTitle } from '../app/useDocumentTitle.js';
 
 /**
  * The monitor list.
@@ -14,6 +15,8 @@ import { paths } from '../app/paths.js';
  * render a half-truth.
  */
 export function MonitorsPage() {
+  useDocumentTitle('Monitors');
+
   const { status, monitors, error, reload, replace, remove } = useMonitors();
 
   return (

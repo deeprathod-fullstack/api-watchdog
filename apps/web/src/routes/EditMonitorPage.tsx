@@ -12,6 +12,7 @@ import type {
   Monitor,
 } from '../features/monitors/types.js';
 import { api } from '../lib/api.js';
+import { useDocumentTitle } from '../app/useDocumentTitle.js';
 
 /** A settled load of the monitor, tagged with the attempt it answers. */
 interface Outcome {
@@ -64,6 +65,8 @@ export function EditMonitorPage() {
   const settled = outcome?.attempt === attempt ? outcome : null;
   const monitor = settled?.monitor ?? null;
   const loadError = settled?.error ?? null;
+
+  useDocumentTitle(monitor ? `Edit ${monitor.name}` : 'Edit monitor');
 
   async function handleSubmit(input: CreateMonitorInput) {
     setSubmitError(null);

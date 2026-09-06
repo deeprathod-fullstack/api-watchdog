@@ -185,6 +185,13 @@ describe('history route and monitor header', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('names the page in the browser once the monitor is known', async () => {
+    renderHistory();
+
+    await screen.findByRole('heading', { level: 1, name: 'Checkout API' });
+    expect(document.title).toBe('Checkout API history · API Watchdog');
+  });
+
   it('offers a way back to the monitor list', async () => {
     renderHistory();
 
@@ -495,8 +502,8 @@ describe('monitor access failures', () => {
     // Nothing that would confirm another account's monitor exists.
     expect(alert.textContent).not.toContain('forbidden');
     expect(alert.textContent).not.toContain('permission');
-    // No history sections are rendered at all. (The page's own <h1> still
-    // reads "Check history", so this asks for the section heading.)
+    // No history sections are rendered at all. (The page's own <h1> reads
+    // "Monitor history", so this asks for the section heading.)
     expect(
       screen.queryByRole('heading', { level: 2, name: 'Check history' }),
     ).toBeNull();

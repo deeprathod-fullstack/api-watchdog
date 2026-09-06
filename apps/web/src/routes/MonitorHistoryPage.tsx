@@ -14,6 +14,7 @@ import { monitorErrorMessage } from '../features/monitors/error-messages.js';
 import * as monitorsApi from '../features/monitors/monitors-api.js';
 import type { Monitor } from '../features/monitors/types.js';
 import { api } from '../lib/api.js';
+import { useDocumentTitle } from '../app/useDocumentTitle.js';
 
 /** A settled load of the monitor itself, tagged with its attempt. */
 interface MonitorOutcome {
@@ -79,9 +80,11 @@ export function MonitorHistoryPage() {
   const monitorError = settled?.error ?? null;
   const refreshing = checks.busy || incidents.busy;
 
+  useDocumentTitle(monitor ? `${monitor.name} history` : 'Monitor history');
+
   if (monitorError) {
     return (
-      <Page title="Check history">
+      <Page title="Monitor history">
         <ErrorState
           title="Could not load this monitor"
           message={monitorError}
@@ -96,7 +99,7 @@ export function MonitorHistoryPage() {
 
   if (!monitor) {
     return (
-      <Page title="Check history">
+      <Page title="Monitor history">
         <Loading label="Loading monitor…" />
       </Page>
     );
