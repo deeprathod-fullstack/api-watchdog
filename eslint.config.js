@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -15,13 +16,14 @@ export default tseslint.config(
   ...tseslint.configs.recommendedTypeChecked,
 
   {
-    files: ['**/*.ts'],
+    files: ['**/*.ts', '**/*.tsx'],
     languageOptions: {
       globals: { ...globals.node },
       parserOptions: {
-        // tsconfig.test.json includes both src and test files, so every
-        // TypeScript file in the repo gets type information.
-        project: ['./tsconfig.test.json'],
+        // Between them these two projects include every TypeScript file in the
+        // repo � Node source and tests in the first, the browser app in the
+        // second � so every file gets type information.
+        project: ['./tsconfig.test.json', './apps/web/tsconfig.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -30,6 +32,21 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+    },
+  },
+
+  // The web app runs in a browser, not in Node.
+  //
+  // The React Hooks rules go here too. `rules-of-hooks` catches a conditional
+  // or nested hook call, which corrupts hook state in ways that surface as a
+  // confusing runtime error far from the cause; `exhaustive-deps` catches the
+  // stale-closure bugs that come from an incomplete dependency array. Neither
+  // is expressible as a type, so ESLint is the only place to catch them.
+  {
+    files: ['apps/web/**/*.{ts,tsx}'],
+    ...reactHooks.configs.flat['recommended-latest'],
+    languageOptions: {
+      globals: { ...globals.browser },
     },
   },
 
