@@ -8,6 +8,12 @@ import { resolveSafely, systemResolver } from './checks/safe-lookup.js';
 import { guardUrl } from './checks/url-guard.js';
 import { getPool, closePool } from './db/pool.js';
 import {
+  BullMqScheduler,
+  createChecksQueue,
+  reconcileSchedules,
+} from './queue/checks-queue.js';
+import { createRedisConnection } from './queue/connection.js';
+import {
   createAuthRateLimiter,
   createManualCheckRateLimiter,
   createMonitorRateLimiter,
@@ -37,6 +43,18 @@ const checkExecutor = {
   client: createCheckClient({ resolve }),
 };
 
+/**
+ * The API's half of the queue: it writes schedules, it never runs checks.
+ *
+ * Keeping execution out of this process is the point of having a worker. An
+ * outbound request to a stranger's host is slow, unpredictable, and occasionally
+ * hostile; running those on the same event loop that serves the dashboard means
+ * one slow target degrades the API for everybody.
+ */
+const redis = createRedisConnection(config);
+const checksQueue = createChecksQueue(redis);
+const scheduler = new BullMqScheduler(checksQueue);
+
 const server = createServer(
   createApp({
     config,
@@ -45,12 +63,39 @@ const server = createServer(
     monitorRateLimiter: createMonitorRateLimiter(),
     manualCheckRateLimiter: createManualCheckRateLimiter(),
     checkExecutor,
+    scheduler,
   }),
 );
 
 server.listen(config.PORT, () => {
   console.log(`api listening on port ${config.PORT} (env: ${config.NODE_ENV})`);
 });
+
+/**
+ * Rebuild the schedules from PostgreSQL, once, at startup.
+ *
+ * This is what lets Redis be disposable. Schedules live there, but they are
+ * derived data: every active monitor should have one and nothing else should.
+ * A flushed Redis, a monitor written while Redis was unreachable, or a delete
+ * whose scheduler removal failed all heal here instead of needing an operator.
+ *
+ * Deliberately not awaited before `listen`: the API is perfectly able to serve
+ * requests without it, and refusing traffic because Redis is slow to answer
+ * would turn a background concern into an outage.
+ */
+void reconcileSchedules(db, checksQueue).then(
+  (report) => {
+    console.log(JSON.stringify({ event: 'schedules_reconciled', ...report }));
+  },
+  (error: unknown) => {
+    console.error(
+      JSON.stringify({
+        event: 'schedule_reconcile_failed',
+        message: error instanceof Error ? error.message : 'unknown error',
+      }),
+    );
+  },
+);
 
 /**
  * Shut down cleanly on SIGTERM/SIGINT.
@@ -77,21 +122,31 @@ function shutdown(signal: string): void {
       process.exit(1);
     }
 
-    // Release database connections last: the process keeps sockets open and
-    // will not exit on its own until the pool is drained.
-    void closePool().then(
+    // Release the outbound connections last: the process keeps sockets open
+    // to both PostgreSQL and Redis and will not exit on its own until each is
+    // drained. The queue is closed before its Redis client, because closing
+    // the client first leaves the queue's in-flight commands with no
+    // connection to finish on.
+    void closeResources().then(
       () => {
         clearTimeout(forceExit);
         console.log('Shutdown complete');
         process.exit(0);
       },
-      (poolError: unknown) => {
+      (closeError: unknown) => {
         clearTimeout(forceExit);
-        console.error('Error closing the database pool:', poolError);
+        console.error('Error releasing resources:', closeError);
         process.exit(1);
       },
     );
   });
+}
+
+/** Close the queue, then Redis, then PostgreSQL. Order matters; see above. */
+async function closeResources(): Promise<void> {
+  await checksQueue.close();
+  await redis.quit();
+  await closePool();
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));

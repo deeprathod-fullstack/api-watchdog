@@ -5,6 +5,7 @@ import { ConfigError, loadConfig } from './config.js';
 /** The variables with no default, which every valid environment must supply. */
 const required = {
   DATABASE_URL: 'postgresql://watchdog:secret@postgres:5432/api_watchdog',
+  REDIS_URL: 'redis://redis:6379',
   JWT_SECRET: 'a'.repeat(32),
 };
 
@@ -18,6 +19,7 @@ describe('loadConfig', () => {
       LOG_LEVEL: 'info',
       DATABASE_URL: required.DATABASE_URL,
       DATABASE_POOL_MAX: 10,
+      REDIS_URL: required.REDIS_URL,
       JWT_SECRET: required.JWT_SECRET,
     });
   });
@@ -53,6 +55,31 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig({ ...required, DATABASE_URL: 'not a url' }),
     ).toThrow(ConfigError);
+  });
+
+  it('rejects a Redis URL that is not a redis URL', () => {
+    expect(() =>
+      loadConfig({ ...required, REDIS_URL: 'http://redis:6379' }),
+    ).toThrow(ConfigError);
+    expect(() => loadConfig({ ...required, REDIS_URL: 'not a url' })).toThrow(
+      ConfigError,
+    );
+  });
+
+  it('accepts the TLS variant of a Redis URL', () => {
+    // Managed Redis hands out rediss:// and there is no reason to refuse it.
+    const config = loadConfig({
+      ...required,
+      REDIS_URL: 'rediss://managed.example:6380',
+    });
+
+    expect(config.REDIS_URL).toBe('rediss://managed.example:6380');
+  });
+
+  it('refuses to start without a Redis URL', () => {
+    const { REDIS_URL: _ignored, ...withoutRedis } = required;
+
+    expect(() => loadConfig(withoutRedis)).toThrow(ConfigError);
   });
 
   it('refuses to start without a signing secret, or with a weak one', () => {

@@ -11,6 +11,7 @@ import {
 } from '../checks/service.js';
 import { NotFoundError, UnauthenticatedError } from '../errors.js';
 import { requireAuth } from '../middleware/require-auth.js';
+import type { CheckScheduler } from '../queue/scheduler.js';
 import { parseBody } from '../validation.js';
 import { findMonitor } from './repository.js';
 import { createMonitorSchema, patchMonitorSchema } from './schemas.js';
@@ -71,6 +72,8 @@ export interface MonitorsRouterDependencies {
   manualCheckRateLimiter: RequestHandler;
   /** The guard, resolver and HTTP client a manual check runs through. */
   checkExecutor: CheckExecutor;
+  /** Keeps the background schedule in step with every monitor write. */
+  scheduler: CheckScheduler;
 }
 
 export function createMonitorsRouter({
@@ -79,6 +82,7 @@ export function createMonitorsRouter({
   createRateLimiter,
   manualCheckRateLimiter,
   checkExecutor,
+  scheduler,
 }: MonitorsRouterDependencies): Router {
   const router = Router();
 
@@ -86,7 +90,7 @@ export function createMonitorsRouter({
 
   router.post('/api/monitors', createRateLimiter, async (req, res) => {
     const input = parseBody(createMonitorSchema, req.body);
-    const monitor = await createMonitor(db, callerId(req), input);
+    const monitor = await createMonitor(db, scheduler, callerId(req), input);
 
     res.status(201).location(`/api/monitors/${monitor.id}`).json({ monitor });
   });
@@ -109,6 +113,7 @@ export function createMonitorsRouter({
     const patch = parseBody(patchMonitorSchema, req.body);
     const monitor = await patchMonitor(
       db,
+      scheduler,
       callerId(req),
       monitorId(req),
       patch,
@@ -118,7 +123,7 @@ export function createMonitorsRouter({
   });
 
   router.delete('/api/monitors/:id', async (req, res) => {
-    await removeMonitor(db, callerId(req), monitorId(req));
+    await removeMonitor(db, scheduler, callerId(req), monitorId(req));
 
     res.status(204).end();
   });

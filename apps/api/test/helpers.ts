@@ -9,6 +9,7 @@ import { type Config, loadConfig, loadDotenv } from '@api-watchdog/shared';
 import { createApp } from '../src/app.js';
 import type { CheckExecutor } from '../src/checks/service.js';
 import { createPool } from '../src/db/pool.js';
+import { type CheckScheduler, noopScheduler } from '../src/queue/scheduler.js';
 
 loadDotenv();
 
@@ -61,6 +62,8 @@ const unusedExecutor: CheckExecutor = {
 export interface TestAppOverrides {
   checkExecutor?: CheckExecutor;
   manualCheckRateLimiter?: RequestHandler;
+  /** Defaults to a no-op, so CRUD tests need no running Redis. */
+  scheduler?: CheckScheduler;
 }
 
 export function buildTestApp(
@@ -76,6 +79,7 @@ export function buildTestApp(
     manualCheckRateLimiter:
       overrides.manualCheckRateLimiter ?? passthroughRateLimiter,
     checkExecutor: overrides.checkExecutor ?? unusedExecutor,
+    scheduler: overrides.scheduler ?? noopScheduler,
   });
 }
 

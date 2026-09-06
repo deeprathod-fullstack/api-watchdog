@@ -13,8 +13,10 @@
   "dependencies": {
     "@api-watchdog/shared": "*",
     "bcrypt": "^6.0.0",
+    "bullmq": "^6.3.4",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.0"
   }
