@@ -62,11 +62,11 @@ npm run lint:fix            # autofix lint
 npm run format              # prettier
 ```
 
-The backend suite runs against the real PostgreSQL and Redis from Compose, so
-they must be up. Some scheduling assertions are necessarily global — they
-compare every active monitor against every job scheduler — so monitors left
-behind by manual testing will fail them. Clear those out if `scheduling.test.ts`
-starts failing for no apparent reason.
+The backend suite needs PostgreSQL and Redis from Compose to be up, but it does
+not touch your development data. It runs against its own database — the one in
+`DATABASE_URL` with a `_test` suffix — which is created and migrated
+automatically on the first run, and its own Redis key prefix. Your monitors and
+accounts are left alone, and nothing has to be cleared out between runs.
 
 ## Stopping
 

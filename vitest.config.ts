@@ -26,9 +26,13 @@ export default defineConfig({
           environment: 'node',
           include: ['apps/api/**/*.test.ts', 'packages/**/*.test.ts'],
 
+          // Creates and migrates the suite's own database before any file
+          // runs, so the tests never read or write development data.
+          globalSetup: ['./apps/api/test/global-setup.ts'],
+
           // One test file at a time.
           //
-          // Most of this suite runs against the one real PostgreSQL and the one
+          // Most of this suite runs against the one test database and the one
           // real Redis from docker-compose. Individual tests scope their data to
           // a user they created, but some assertions are necessarily global —
           // startup reconciliation compares *every* active monitor against

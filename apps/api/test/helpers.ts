@@ -10,6 +10,7 @@ import { createApp } from '../src/app.js';
 import type { CheckExecutor } from '../src/checks/service.js';
 import { createPool } from '../src/db/pool.js';
 import { type CheckScheduler, noopScheduler } from '../src/queue/scheduler.js';
+import { testDatabaseUrls } from './database-url.js';
 
 loadDotenv();
 
@@ -17,15 +18,22 @@ loadDotenv();
  * Configuration for tests.
  *
  * A fixed signing secret keeps token tests deterministic and independent of
- * whatever the developer has in `.env`; `DATABASE_URL` is not defaulted, because
- * silently pointing the tests at some other database would be worse than
- * failing loudly.
+ * whatever the developer has in `.env`.
+ *
+ * `DATABASE_URL` is redirected to the suite's own database — the development
+ * one with a `_test` suffix — because several assertions here are necessarily
+ * global: startup reconciliation compares *every* active monitor against
+ * *every* job scheduler, and that is only checkable when the tests own
+ * everything the query can see. It is derived from the developer's own
+ * `DATABASE_URL` rather than configured separately, so there is one host and
+ * one credential to get right; `global-setup.ts` creates and migrates it.
  */
 export function testConfig(): Config {
   return loadConfig({
     ...process.env,
     NODE_ENV: 'test',
     JWT_SECRET: 'test-signing-secret-not-used-anywhere-else',
+    DATABASE_URL: testDatabaseUrls().test,
   });
 }
 
