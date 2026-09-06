@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Button } from '../../components/Button.js';
@@ -53,7 +53,26 @@ export function MonitorRow({
   const [checkResult, setCheckResult] = useState<CheckResult | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+
   const busy = pending !== null;
+
+  // The confirmation replaces the row's actions, so the button that opened it
+  // no longer exists and focus would otherwise fall back to the document. Move
+  // it onto the confirm button, which is also what makes the new question
+  // reach a screen reader.
+  useEffect(() => {
+    if (confirmingDelete) confirmButtonRef.current?.focus();
+  }, [confirmingDelete]);
+
+  /** Cancelling puts focus back where the user left it. */
+  function cancelDelete() {
+    setConfirmingDelete(false);
+    // The Delete button is re-rendered by this state change; focus it once it
+    // is back in the DOM.
+    requestAnimationFrame(() => deleteButtonRef.current?.focus());
+  }
 
   async function handleToggleActive() {
     if (busy) return;
@@ -172,19 +191,14 @@ export function MonitorRow({
           </p>
           <div className="monitor__actions">
             <Button
+              ref={confirmButtonRef}
               variant="danger"
               disabled={busy}
               onClick={() => void handleDelete()}
             >
               {pending === 'delete' ? 'Deleting…' : 'Delete monitor'}
             </Button>
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => {
-                setConfirmingDelete(false);
-              }}
-            >
+            <Button variant="secondary" disabled={busy} onClick={cancelDelete}>
               Cancel
             </Button>
           </div>
@@ -231,6 +245,7 @@ export function MonitorRow({
           </Link>
 
           <Button
+            ref={deleteButtonRef}
             variant="danger"
             disabled={busy}
             onClick={() => {
