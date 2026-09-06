@@ -1,19 +1,5 @@
+import { checkErrorLabel } from '../../lib/check-error-types.js';
 import type { CheckResult } from './types.js';
-
-/** Machine classifiers turned into something a person reads. */
-const ERROR_TYPE_LABELS: Record<string, string> = {
-  status_mismatch: 'Unexpected status',
-  timeout: 'Timed out',
-  dns: 'DNS lookup failed',
-  connection_refused: 'Connection refused',
-  connection_error: 'Connection error',
-  tls: 'TLS error',
-  blocked_url: 'URL blocked by policy',
-  blocked_address: 'Address blocked by policy',
-  too_many_redirects: 'Too many redirects',
-  invalid_response: 'Invalid response',
-  unknown: 'Unknown error',
-};
 
 export interface CheckResultSummaryProps {
   result: CheckResult;
@@ -32,9 +18,7 @@ export interface CheckResultSummaryProps {
  */
 export function CheckResultSummary({ result }: CheckResultSummaryProps) {
   const failed = result.status === 'failure';
-  const errorLabel = result.errorType
-    ? (ERROR_TYPE_LABELS[result.errorType] ?? 'Check failed')
-    : null;
+  const errorLabel = checkErrorLabel(result.errorType);
 
   return (
     <div
