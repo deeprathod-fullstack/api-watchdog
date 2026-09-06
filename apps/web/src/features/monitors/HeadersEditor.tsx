@@ -73,11 +73,13 @@ export function HeadersEditor({
 
   return (
     <fieldset className="headers">
-      <legend className="headers__legend">Request headers (optional)</legend>
+      <legend className="headers__legend">
+        Request headers <span className="headers__optional">Optional</span>
+      </legend>
       <p className="headers__hint">
-        Only non-secret headers are supported. Never put an API key, token or
-        cookie here — checks are stored and this value is not a credential
-        store.
+        Sent with every check. Only non-secret headers are supported — never an
+        API key, token or cookie. Header values are stored in plain text and
+        travel to the endpoint you chose.
       </p>
 
       {entries.length > 0 ? (
@@ -86,9 +88,13 @@ export function HeadersEditor({
             <li className="headers__item" key={headerName}>
               <span className="headers__name">{headerName}</span>
               <span className="headers__value">{headerValue}</span>
+              {/* Named for the header it removes: several rows each show a
+                  control reading "Remove", and on its own that says nothing
+                  about which one it acts on. */}
               <Button
-                variant="secondary"
+                variant="subtle-danger"
                 disabled={disabled}
+                aria-label={`Remove ${headerName} header`}
                 onClick={() => {
                   handleRemove(headerName);
                 }}
@@ -99,7 +105,10 @@ export function HeadersEditor({
           ))}
         </ul>
       ) : (
-        <p className="headers__empty">No headers added.</p>
+        <p className="headers__empty">
+          <span className="headers__empty-title">No custom headers</span>
+          Add one below if the endpoint needs it.
+        </p>
       )}
 
       <div className="headers__add">

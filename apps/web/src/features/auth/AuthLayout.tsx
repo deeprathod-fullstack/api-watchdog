@@ -24,7 +24,12 @@ export function AuthLayout({
   return (
     <main className="auth">
       <div className="auth__card">
-        <p className="auth__brand">API Watchdog</p>
+        {/* The same brand lock-up as the shell, so signing in does not feel
+            like a different application. */}
+        <p className="auth__brand">
+          <span className="shell__mark" aria-hidden="true" />
+          API Watchdog
+        </p>
         <h1 className="auth__title">{title}</h1>
         <p className="auth__description">{description}</p>
 
