@@ -179,13 +179,22 @@ export async function listMonitors(
 /**
  * Fetch one monitor belonging to this user.
  *
+ * **The lookup every user-facing path must use.** It takes a `userId` because
+ * there is no way to call it without one: ownership is a required argument, not
+ * a convention someone has to remember.
+ *
  * `user_id` is in the predicate, not compared afterwards in JavaScript. A
  * fetch-then-compare has the row in memory before the decision, so any later
  * early return or log line can leak it — and deleting the comparison breaks
  * nothing visibly. Here, forgetting the scope returns no rows, which the tests
  * catch immediately.
+ *
+ * The name is deliberately the obvious one. "Find a monitor by id" is what a
+ * developer reaches for, so the obvious name has to be the safe one; the
+ * unscoped lookup is called {@link findMonitorForWorker} precisely so that it
+ * cannot be typed by accident.
  */
-export async function findMonitor(
+export async function findMonitorById(
   db: pg.Pool,
   userId: string,
   monitorId: string,
@@ -195,6 +204,44 @@ export async function findMonitor(
        FROM monitors
       WHERE id = $1 AND user_id = $2`,
     [monitorId, userId],
+  );
+
+  const row = result.rows[0];
+  return row ? toMonitor(row) : null;
+}
+
+/**
+ * Fetch a monitor by id alone, with no owner scope. **Worker use only.**
+ *
+ * The one query in the system that deliberately has no `user_id` in its
+ * predicate. The name says who may call it because the signature cannot: a
+ * function taking only an id looks callable from anywhere, so the boundary has
+ * to be carried by something a reader and a code review can both see.
+ *
+ * The single legitimate caller is `runScheduledCheck`. No route, no router and
+ * no service in the request path may use this — if a handler needs a monitor,
+ * it has a `userId` and must use {@link findMonitorById}. `monitor-lookup-
+ * boundary.test.ts` fails the build if that stops being true.
+ *
+ * Why the exemption is sound rather than a hole: a scheduled job is not made on
+ * anybody's behalf. There is no request, no token and no caller to authorise.
+ * What the worker has is a monitor id it put into the queue itself, and this is
+ * how it turns that id back into the current row. Nothing this returns is ever
+ * serialised to an HTTP response.
+ *
+ * Reloading rather than trusting the job payload is the other half of it. A
+ * queued job can be minutes old, so the row is re-read on every execution and
+ * the monitor's URL, headers, timeout and paused state are always current.
+ */
+export async function findMonitorForWorker(
+  db: pg.Pool,
+  monitorId: string,
+): Promise<Monitor | null> {
+  const result = await db.query<MonitorRow>(
+    `SELECT ${RETURNED_COLUMNS}
+       FROM monitors
+      WHERE id = $1`,
+    [monitorId],
   );
 
   const row = result.rows[0];
@@ -247,7 +294,7 @@ export async function updateMonitor(
   if (assignments.length === 0) {
     // The schema already rejects an empty patch; this keeps the function from
     // emitting a syntactically invalid UPDATE if that ever changes.
-    return findMonitor(db, userId, monitorId);
+    return findMonitorById(db, userId, monitorId);
   }
 
   try {

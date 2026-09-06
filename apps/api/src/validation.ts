@@ -29,3 +29,27 @@ export function parseBody<T extends z.ZodType>(
 
   return result.data;
 }
+
+/**
+ * Parse an untrusted query string against a schema, or fail with a 400.
+ *
+ * Separate from {@link parseBody} only so the failure message says `query`
+ * rather than `body`. Query values are always strings, so the schemas that use
+ * this are the one place where coercion is right rather than sloppy.
+ */
+export function parseQuery<T extends z.ZodType>(
+  schema: T,
+  query: unknown,
+): z.output<T> {
+  const result = schema.safeParse(query);
+
+  if (!result.success) {
+    const details = result.error.issues
+      .map((issue) => `${issue.path.join('.') || 'query'} ${issue.message}`)
+      .join('; ');
+
+    throw new ValidationError(details);
+  }
+
+  return result.data;
+}

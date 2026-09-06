@@ -1,9 +1,10 @@
 import type pg from 'pg';
 
 import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
+import type { CheckScheduler } from '../queue/scheduler.js';
 import {
   deleteMonitor,
-  findMonitor,
+  findMonitorById,
   insertMonitor,
   listMonitors,
   MonitorConstraintError,
@@ -85,8 +86,37 @@ function asValidationError(error: unknown): never {
   throw error;
 }
 
+/**
+ * Bring a monitor's schedule in line with the row we just wrote.
+ *
+ * Scheduling failures are logged, never thrown. The write has already
+ * committed, so turning a Redis hiccup into a 500 would tell the caller their
+ * monitor was not created when it was — and leave them with no way to find out
+ * otherwise. The honest failure mode is a monitor that exists but is not yet
+ * scheduled, which `reconcileSchedules` repairs at the next API start.
+ *
+ * The monitor id is safe to log; nothing else about the monitor is touched.
+ */
+async function syncSchedule(
+  scheduler: CheckScheduler,
+  monitor: Monitor,
+): Promise<void> {
+  try {
+    await scheduler.sync(monitor);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'schedule_sync_failed',
+        monitorId: monitor.id,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }),
+    );
+  }
+}
+
 export async function createMonitor(
   db: pg.Pool,
+  scheduler: CheckScheduler,
   userId: string,
   input: CreateMonitorInput,
 ): Promise<MonitorResponse> {
@@ -104,6 +134,8 @@ export async function createMonitor(
       `A user may own at most ${String(MAX_MONITORS_PER_USER)} monitors`,
     );
   }
+
+  await syncSchedule(scheduler, monitor);
 
   return toMonitorResponse(monitor);
 }
@@ -129,15 +161,33 @@ export async function getMonitor(
   userId: string,
   monitorId: string,
 ): Promise<MonitorResponse> {
-  const monitor = await findMonitor(db, userId, monitorId);
+  const monitor = await findMonitorById(db, userId, monitorId);
 
   if (!monitor) throw new NotFoundError('Monitor not found');
 
   return toMonitorResponse(monitor);
 }
 
+/**
+ * Which patches can change a schedule?
+ *
+ * Only these two fields define one, so a patch that mentions neither cannot
+ * possibly need the scheduler touched. Checking this is not an optimisation —
+ * an upsert restarts the scheduler's timer, so re-syncing on an unrelated
+ * rename would push the monitor's next check up to a full interval away. A
+ * rename must not delay a check.
+ *
+ * Everything else the worker needs — URL, headers, timeout, expected status —
+ * is read from PostgreSQL at execution time, so those changes take effect on
+ * the next run with no scheduling work at all.
+ */
+function affectsSchedule(patch: PatchMonitorInput): boolean {
+  return patch.active !== undefined || patch.intervalSeconds !== undefined;
+}
+
 export async function patchMonitor(
   db: pg.Pool,
+  scheduler: CheckScheduler,
   userId: string,
   monitorId: string,
   patch: PatchMonitorInput,
@@ -152,15 +202,38 @@ export async function patchMonitor(
 
   if (!monitor) throw new NotFoundError('Monitor not found');
 
+  if (affectsSchedule(patch)) {
+    // `sync` reads `active` off the updated row, so pause, resume and an
+    // interval change are all handled by this one call.
+    await syncSchedule(scheduler, monitor);
+  }
+
   return toMonitorResponse(monitor);
 }
 
 export async function removeMonitor(
   db: pg.Pool,
+  scheduler: CheckScheduler,
   userId: string,
   monitorId: string,
 ): Promise<void> {
   const deleted = await deleteMonitor(db, userId, monitorId);
 
   if (!deleted) throw new NotFoundError('Monitor not found');
+
+  // Removed after the delete commits, never before: a schedule for a monitor
+  // that still exists would stop it being checked, whereas a schedule left
+  // behind for a deleted one is harmless — the worker reloads from PostgreSQL,
+  // finds nothing, and does nothing. Reconciliation clears it later.
+  try {
+    await scheduler.remove(monitorId);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: 'schedule_remove_failed',
+        monitorId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }),
+    );
+  }
 }

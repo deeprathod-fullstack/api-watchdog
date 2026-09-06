@@ -177,25 +177,49 @@ afterAll(async () => {
   await db.end();
 });
 
-/** Create a monitor owned by `user`. Check results cascade with it. */
+/**
+ * Create a monitor owned by `user`. Check results cascade with it.
+ *
+ * The row is created through the real API — ownership, defaults and the
+ * per-user cap all come from production code — and only then is the `url`
+ * column written directly.
+ *
+ * That last step is here because the CRUD boundary applies the same static
+ * policy the check pipeline does, and that policy allows only ports 80 and 443.
+ * These tests must point a monitor at a local server on an ephemeral port,
+ * which is by definition not one of those. The alternative would be a seam that
+ * relaxes the policy for tests, and a policy with an off switch is not a
+ * policy — so the switch does not exist and the test writes the column instead.
+ *
+ * Nothing about the *check* path is weakened by this: `runManualCheck` still
+ * runs the injected guard, the real resolver contract and the real client, and
+ * the guard is the genuine `guardUrl` for every case except that one port.
+ */
 async function createMonitor(
   user: TestUser,
   overrides: Record<string, unknown>,
 ): Promise<string> {
+  const { url, ...rest } = {
+    name: 'Check target',
+    url: 'http://monitor.test/',
+    intervalSeconds: 300,
+    timeoutMs: 5000,
+    ...overrides,
+  };
+
   const response = await request(app)
     .post('/api/monitors')
     .set('Authorization', `Bearer ${user.token}`)
-    .send({
-      name: 'Check target',
-      url: 'http://monitor.test/',
-      intervalSeconds: 300,
-      timeoutMs: 5000,
-      ...overrides,
-    });
+    // A policy-valid placeholder; the real target is written below.
+    .send({ ...rest, url: 'http://monitor.test/' });
 
   expect(response.status).toBe(201);
 
-  return (response.body as { monitor: { id: string } }).monitor.id;
+  const id = (response.body as { monitor: { id: string } }).monitor.id;
+
+  await db.query('UPDATE monitors SET url = $1 WHERE id = $2', [url, id]);
+
+  return id;
 }
 
 async function runCheck(

@@ -47,6 +47,35 @@ export const configSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 
   /**
+   * Full Redis connection string, e.g. `redis://host:6379`.
+   *
+   * Redis is the queue transport and the scheduler's clock — it is *not* a
+   * source of truth. Every job carries a monitor id and nothing else; the
+   * worker reloads the monitor from PostgreSQL before it does anything with
+   * it. That means a wiped Redis costs us pending schedules (rebuilt at
+   * startup from the database) and never costs us data.
+   *
+   * A single URL for the same reason as DATABASE_URL: it is the format managed
+   * providers hand out, so a deployment pastes one value.
+   */
+  REDIS_URL: z
+    .string()
+    .min(1)
+    .refine(
+      (value) => {
+        try {
+          const { protocol } = new URL(value);
+          // `rediss:` is the TLS variant, which any managed provider will hand
+          // out and which we have no reason to refuse.
+          return protocol === 'redis:' || protocol === 'rediss:';
+        } catch {
+          return false;
+        }
+      },
+      { message: 'must be a redis:// or rediss:// URL' },
+    ),
+
+  /**
    * Signing key for API access tokens (HS256).
    *
    * Validated here, so a deployment with a missing or weak secret fails at

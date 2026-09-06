@@ -4,15 +4,19 @@ import { z } from 'zod';
 
 import { type Config } from '@api-watchdog/shared';
 
+import { listCheckResults } from '../checks/repository.js';
 import {
   type CheckExecutor,
   runManualCheck,
   toCheckResultResponse,
 } from '../checks/service.js';
+import { listIncidents } from '../incidents/repository.js';
 import { NotFoundError, UnauthenticatedError } from '../errors.js';
 import { requireAuth } from '../middleware/require-auth.js';
-import { parseBody } from '../validation.js';
-import { findMonitor } from './repository.js';
+import type { CheckScheduler } from '../queue/scheduler.js';
+import { parseBody, parseQuery } from '../validation.js';
+import { pageQuerySchema, toIncidentResponse } from './history.js';
+import { findMonitorById } from './repository.js';
 import { createMonitorSchema, patchMonitorSchema } from './schemas.js';
 import {
   createMonitor,
@@ -71,6 +75,8 @@ export interface MonitorsRouterDependencies {
   manualCheckRateLimiter: RequestHandler;
   /** The guard, resolver and HTTP client a manual check runs through. */
   checkExecutor: CheckExecutor;
+  /** Keeps the background schedule in step with every monitor write. */
+  scheduler: CheckScheduler;
 }
 
 export function createMonitorsRouter({
@@ -79,6 +85,7 @@ export function createMonitorsRouter({
   createRateLimiter,
   manualCheckRateLimiter,
   checkExecutor,
+  scheduler,
 }: MonitorsRouterDependencies): Router {
   const router = Router();
 
@@ -86,7 +93,7 @@ export function createMonitorsRouter({
 
   router.post('/api/monitors', createRateLimiter, async (req, res) => {
     const input = parseBody(createMonitorSchema, req.body);
-    const monitor = await createMonitor(db, callerId(req), input);
+    const monitor = await createMonitor(db, scheduler, callerId(req), input);
 
     res.status(201).location(`/api/monitors/${monitor.id}`).json({ monitor });
   });
@@ -109,6 +116,7 @@ export function createMonitorsRouter({
     const patch = parseBody(patchMonitorSchema, req.body);
     const monitor = await patchMonitor(
       db,
+      scheduler,
       callerId(req),
       monitorId(req),
       patch,
@@ -118,7 +126,7 @@ export function createMonitorsRouter({
   });
 
   router.delete('/api/monitors/:id', async (req, res) => {
-    await removeMonitor(db, callerId(req), monitorId(req));
+    await removeMonitor(db, scheduler, callerId(req), monitorId(req));
 
     res.status(204).end();
   });
@@ -141,7 +149,7 @@ export function createMonitorsRouter({
       const userId = callerId(req);
       const id = monitorId(req);
 
-      const monitor = await findMonitor(db, userId, id);
+      const monitor = await findMonitorById(db, userId, id);
       // 404, not 403: a monitor belonging to someone else must be
       // indistinguishable from one that does not exist.
       if (!monitor) throw new NotFoundError('Monitor not found');
@@ -154,6 +162,52 @@ export function createMonitorsRouter({
       res.status(200).json({ check: toCheckResultResponse(check) });
     },
   );
+
+  /**
+   * This monitor's check history, newest first.
+   *
+   * Ownership is re-established with a scoped read before anything is listed,
+   * so a monitor belonging to someone else is a 404 here exactly as it is on
+   * every other monitor route. Listing first and filtering afterwards would
+   * make the history endpoint the one place where another user's rows were
+   * ever in memory.
+   */
+  router.get('/api/monitors/:id/checks', async (req, res) => {
+    const userId = callerId(req);
+    const id = monitorId(req);
+    const { limit, offset } = parseQuery(pageQuerySchema, req.query);
+
+    const monitor = await findMonitorById(db, userId, id);
+    if (!monitor) throw new NotFoundError('Monitor not found');
+
+    const checks = await listCheckResults(db, id, limit, offset);
+
+    // The page parameters are echoed back so a client can tell a short page
+    // from the end of the history without guessing at the default.
+    res.status(200).json({
+      checks: checks.map(toCheckResultResponse),
+      limit,
+      offset,
+    });
+  });
+
+  /** This monitor's incident history, newest first. */
+  router.get('/api/monitors/:id/incidents', async (req, res) => {
+    const userId = callerId(req);
+    const id = monitorId(req);
+    const { limit, offset } = parseQuery(pageQuerySchema, req.query);
+
+    const monitor = await findMonitorById(db, userId, id);
+    if (!monitor) throw new NotFoundError('Monitor not found');
+
+    const incidents = await listIncidents(db, userId, id, limit, offset);
+
+    res.status(200).json({
+      incidents: incidents.map(toIncidentResponse),
+      limit,
+      offset,
+    });
+  });
 
   return router;
 }

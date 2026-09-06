@@ -4,9 +4,11 @@ import type pg from 'pg';
 import { type Config } from '@api-watchdog/shared';
 
 import { createAuthRouter } from './auth/routes.js';
+import { createDashboardRouter } from './dashboard/routes.js';
 import type { CheckExecutor } from './checks/service.js';
 import { createMonitorsRouter } from './monitors/routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
+import type { CheckScheduler } from './queue/scheduler.js';
 import { healthRouter } from './routes/health.js';
 
 /**
@@ -33,6 +35,14 @@ export interface AppDependencies {
    * environment variable selects between them.
    */
   checkExecutor: CheckExecutor;
+  /**
+   * Keeps the background schedule in step with monitor writes.
+   *
+   * Injected like everything else: the API owns scheduling but knows it only
+   * through this interface, so CRUD tests need no Redis and the process entry
+   * point is the only place that decides on a real BullMQ queue.
+   */
+  scheduler: CheckScheduler;
 }
 
 /**
@@ -49,6 +59,7 @@ export function createApp({
   monitorRateLimiter,
   manualCheckRateLimiter,
   checkExecutor,
+  scheduler,
 }: AppDependencies): Express {
   const app = express();
 
@@ -60,6 +71,7 @@ export function createApp({
 
   app.use(healthRouter);
   app.use(createAuthRouter(db, config, authRateLimiter));
+  app.use(createDashboardRouter(db, config));
   app.use(
     createMonitorsRouter({
       db,
@@ -67,6 +79,7 @@ export function createApp({
       createRateLimiter: monitorRateLimiter,
       manualCheckRateLimiter,
       checkExecutor,
+      scheduler,
     }),
   );
 
