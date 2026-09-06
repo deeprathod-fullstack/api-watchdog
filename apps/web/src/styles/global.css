@@ -500,3 +500,224 @@ a.button {
   text-decoration: none;
   text-align: center;
 }
+
+/* --- Dashboard ------------------------------------------------------------- */
+
+.page__actions-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Visible to screen readers only — used to give repeated links, such as one
+   "Edit" per row, a name that says which monitor they act on. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.cards {
+  list-style: none;
+  margin: 0 0 calc(var(--space) * 1.5);
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.card {
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+}
+
+/* Tone reinforces the number; the label and note carry the meaning on their
+   own, so nothing here depends on colour alone. */
+.card--good {
+  border-left-color: #1b7f4b;
+}
+
+.card--bad {
+  border-left-color: var(--color-danger);
+}
+
+.card__label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.card__value {
+  margin: 2px 0;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.card__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.section {
+  margin-bottom: calc(var(--space) * 1.5);
+}
+
+.section__title {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.section__empty {
+  margin: 0;
+  padding: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-muted);
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.badge--healthy {
+  border-color: #1b7f4b;
+  color: #1b7f4b;
+}
+
+.badge--failing,
+.badge--incident {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.badge--unchecked,
+.badge--paused {
+  color: var(--color-muted);
+}
+
+.health,
+.incidents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.health__row,
+.incident {
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+}
+
+.health__row--failing,
+.incident {
+  border-left-color: var(--color-danger);
+}
+
+.health__row--healthy {
+  border-left-color: #1b7f4b;
+}
+
+.health__identity,
+.incident__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.health__name,
+.incident__name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.health__url,
+.incident__url {
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.health__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.health__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space);
+  margin: 10px 0 0;
+}
+
+.health__fact dt {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.health__fact dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.health__link {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+/* The table scrolls inside its own box rather than pushing the page sideways
+   on a narrow screen. */
+.activity {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.activity th,
+.activity td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.activity thead th {
+  font-size: 12px;
+  color: var(--color-muted);
+  font-weight: 500;
+}
+
+.activity tbody tr:last-child th,
+.activity tbody tr:last-child td {
+  border-bottom: none;
+}
