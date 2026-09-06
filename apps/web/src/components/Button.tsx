@@ -1,7 +1,14 @@
-import type { ButtonHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, Ref } from 'react';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'danger';
+  /**
+   * Forwarded to the underlying element, so a caller can move focus here —
+   * a confirmation replacing the control that opened it, say. React 19 passes
+   * `ref` as an ordinary prop, so no `forwardRef` wrapper is needed; it only
+   * has to be declared.
+   */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 /**

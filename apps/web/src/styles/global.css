@@ -12,6 +12,7 @@
   --color-muted: #5a6674;
   --color-accent: #1f5eff;
   --color-danger: #b3261e;
+  --color-success: #1b7f4b;
 
   --radius: 6px;
   --space: 16px;
@@ -43,6 +44,27 @@ a {
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* Out of the way until it is tabbed to, then the first thing on the page. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 10;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.skip-link:focus {
+  left: 8px;
+}
+
+/* The skip link's target should not draw a focus ring around the whole page. */
+.shell__main:focus {
+  outline: none;
 }
 
 /* --- Shell ---------------------------------------------------------------- */
@@ -332,23 +354,8 @@ a {
   overflow-wrap: anywhere;
 }
 
-/* State is carried by the word, not the colour — the colour only reinforces. */
 .monitor__state {
   margin: 0;
-  padding: 2px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.monitor__state--active {
-  border-color: #1b7f4b;
-  color: #1b7f4b;
-}
-
-.monitor__state--paused {
-  color: var(--color-muted);
 }
 
 .monitor__facts,
@@ -396,7 +403,7 @@ a {
 }
 
 .check--success {
-  border-color: #1b7f4b;
+  border-color: var(--color-success);
 }
 
 .check--failure {
@@ -542,7 +549,7 @@ a.button {
 /* Tone reinforces the number; the label and note carry the meaning on their
    own, so nothing here depends on colour alone. */
 .card--good {
-  border-left-color: #1b7f4b;
+  border-left-color: var(--color-success);
 }
 
 .card--bad {
@@ -595,9 +602,10 @@ a.button {
   white-space: nowrap;
 }
 
-.badge--healthy {
-  border-color: #1b7f4b;
-  color: #1b7f4b;
+.badge--healthy,
+.badge--active {
+  border-color: var(--color-success);
+  color: var(--color-success);
 }
 
 .badge--failing,
@@ -635,7 +643,7 @@ a.button {
 }
 
 .health__row--healthy {
-  border-left-color: #1b7f4b;
+  border-left-color: var(--color-success);
 }
 
 .health__identity,
@@ -694,13 +702,8 @@ a.button {
 /* The table scrolls inside its own box rather than pushing the page sideways
    on a narrow screen. */
 .activity {
-  display: block;
-  overflow-x: auto;
   width: 100%;
   border-collapse: collapse;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
 }
 
 .activity th,

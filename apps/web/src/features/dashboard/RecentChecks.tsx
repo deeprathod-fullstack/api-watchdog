@@ -47,38 +47,43 @@ export function RecentChecks({ monitors }: RecentChecksProps) {
   }
 
   return (
-    <table className="activity">
-      <caption className="visually-hidden">
-        Latest check for each recently checked monitor
-      </caption>
-      <thead>
-        <tr>
-          <th scope="col">Monitor</th>
-          <th scope="col">Result</th>
-          <th scope="col">HTTP</th>
-          <th scope="col">Response</th>
-          <th scope="col">Checked</th>
-        </tr>
-      </thead>
-      <tbody>
-        {recent.map(({ monitor }) => {
-          const health = healthOf(monitor);
+    // The wrapper scrolls, not the table: `display: block` on a <table> stops
+    // its columns aligning, and letting the table itself overflow pushes the
+    // whole page sideways on a narrow screen.
+    <div className="table-scroll">
+      <table className="activity">
+        <caption className="visually-hidden">
+          Latest check for each recently checked monitor
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Monitor</th>
+            <th scope="col">Result</th>
+            <th scope="col">HTTP</th>
+            <th scope="col">Response</th>
+            <th scope="col">Checked</th>
+          </tr>
+        </thead>
+        <tbody>
+          {recent.map(({ monitor }) => {
+            const health = healthOf(monitor);
 
-          return (
-            <tr key={monitor.id}>
-              <th scope="row">{monitor.name}</th>
-              <td>
-                <span className={`badge badge--${health}`}>
-                  {HEALTH_LABELS[health]}
-                </span>
-              </td>
-              <td>{formatHttpStatus(monitor.latestHttpStatus)}</td>
-              <td>{formatResponseTime(monitor.latestResponseTimeMs)}</td>
-              <td>{formatCheckedAt(monitor.latestCheckedAt)}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+            return (
+              <tr key={monitor.id}>
+                <th scope="row">{monitor.name}</th>
+                <td>
+                  <span className={`badge badge--${health}`}>
+                    {HEALTH_LABELS[health]}
+                  </span>
+                </td>
+                <td>{formatHttpStatus(monitor.latestHttpStatus)}</td>
+                <td>{formatResponseTime(monitor.latestResponseTimeMs)}</td>
+                <td>{formatCheckedAt(monitor.latestCheckedAt)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

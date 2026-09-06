@@ -162,15 +162,16 @@ export function MonitorForm({
         }}
       />
 
-      {/* Method is GET in V1. Shown as a disabled control rather than a select
-          with one option, so it reads as a stated fact instead of a choice
-          that does nothing. */}
+      {/* Method is GET in V1: a stated fact rather than a select with one
+          option. `readOnly` rather than `disabled` — a disabled input is
+          removed from the tab order and skipped by most screen readers, which
+          would hide the one field explaining the constraint from exactly the
+          people who need it explained. */}
       <Field
         label="Method"
         name="method"
         value="GET"
         readOnly
-        disabled
         hint="V1 checks public GET endpoints only."
       />
 

@@ -65,9 +65,10 @@ describe('monitor list', () => {
     renderMonitors([jsonResponse(200, { monitors: [] })]);
 
     expect(await screen.findByText('No monitors yet')).toBeTruthy();
+    // The same label as everywhere else that starts this journey.
     expect(
-      screen.getByRole('link', { name: /create your first monitor/i }),
-    ).toBeTruthy();
+      screen.getAllByRole('link', { name: 'Add monitor' }).length,
+    ).toBeGreaterThan(0);
   });
 
   it('reports a failed load and can retry it', async () => {
@@ -180,6 +181,29 @@ describe('delete', () => {
     expect(await screen.findByText(/cannot be undone/i)).toBeTruthy();
     // Nothing beyond the bootstrap and the list has been requested.
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('moves focus to the confirm button, and back on cancel', async () => {
+    renderMonitors([jsonResponse(200, { monitors: [monitor()] })]);
+
+    await screen.findByRole('heading', { level: 2, name: 'Checkout API' });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    // The button that opened the confirmation no longer exists, so focus has
+    // to be placed deliberately or it falls back to the document.
+    const confirm = await screen.findByRole('button', {
+      name: 'Delete monitor',
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(confirm);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    const deleteButton = await screen.findByRole('button', { name: 'Delete' });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(deleteButton);
+    });
   });
 
   it('can be cancelled', async () => {

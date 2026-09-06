@@ -9,6 +9,7 @@ import { OpenIncidents } from '../features/dashboard/OpenIncidents.js';
 import { RecentChecks } from '../features/dashboard/RecentChecks.js';
 import { SummaryCards } from '../features/dashboard/SummaryCards.js';
 import { useDashboard } from '../features/dashboard/useDashboard.js';
+import { useDocumentTitle } from '../app/useDocumentTitle.js';
 
 /**
  * The authenticated landing page.
@@ -20,6 +21,8 @@ import { useDashboard } from '../features/dashboard/useDashboard.js';
  * recently, then everything else.
  */
 export function DashboardPage() {
+  useDocumentTitle('Dashboard');
+
   const { status, data, error, refreshing, refresh } = useDashboard();
 
   // The very first load: no numbers at all rather than a page of zeros, which

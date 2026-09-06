@@ -3,8 +3,11 @@ import { Link } from 'react-router-dom';
 import { paths } from '../app/paths.js';
 import { AuthLayout } from '../features/auth/AuthLayout.js';
 import { LoginForm } from '../features/auth/LoginForm.js';
+import { useDocumentTitle } from '../app/useDocumentTitle.js';
 
 export function LoginPage() {
+  useDocumentTitle('Sign in');
+
   return (
     <AuthLayout
       title="Sign in"

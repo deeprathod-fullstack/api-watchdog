@@ -480,6 +480,13 @@ describe('refresh', () => {
 });
 
 describe('dashboard navigation', () => {
+  it('names the page in the browser', async () => {
+    renderDashboard([dashboard([dashMonitor()])]);
+
+    await screen.findByRole('heading', { level: 2, name: 'Monitor health' });
+    expect(document.title).toBe('Dashboard · API Watchdog');
+  });
+
   it('links to the monitor list and the create form', async () => {
     renderDashboard([dashboard([dashMonitor()])]);
 

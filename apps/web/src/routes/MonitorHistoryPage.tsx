@@ -14,6 +14,7 @@ import { monitorErrorMessage } from '../features/monitors/error-messages.js';
 import * as monitorsApi from '../features/monitors/monitors-api.js';
 import type { Monitor } from '../features/monitors/types.js';
 import { api } from '../lib/api.js';
+import { useDocumentTitle } from '../app/useDocumentTitle.js';
 
 /** A settled load of the monitor itself, tagged with its attempt. */
 interface MonitorOutcome {
@@ -79,9 +80,11 @@ export function MonitorHistoryPage() {
   const monitorError = settled?.error ?? null;
   const refreshing = checks.busy || incidents.busy;
 
+  useDocumentTitle(monitor ? `${monitor.name} history` : 'Monitor history');
+
   if (monitorError) {
     return (
-      <Page title="Check history">
+      <Page title="Monitor history">
         <ErrorState
           title="Could not load this monitor"
           message={monitorError}
@@ -96,7 +99,7 @@ export function MonitorHistoryPage() {
 
   if (!monitor) {
     return (
-      <Page title="Check history">
+      <Page title="Monitor history">
         <Loading label="Loading monitor…" />
       </Page>
     );
@@ -164,6 +167,7 @@ export function MonitorHistoryPage() {
             title="Could not load check history"
             message={checks.error ?? 'Something went wrong. Please try again.'}
             onRetry={checks.refresh}
+            headingLevel={3}
           />
         ) : null}
 
@@ -175,6 +179,7 @@ export function MonitorHistoryPage() {
                 ? 'There are no more checks beyond this point.'
                 : 'Scheduled checks begin at this monitor’s interval, or you can run one now from the Monitors page.'
             }
+            headingLevel={3}
           />
         ) : null}
 
@@ -213,6 +218,7 @@ export function MonitorHistoryPage() {
               incidents.error ?? 'Something went wrong. Please try again.'
             }
             onRetry={incidents.refresh}
+            headingLevel={3}
           />
         ) : null}
 
@@ -224,6 +230,7 @@ export function MonitorHistoryPage() {
                 ? 'There are no more incidents beyond this point.'
                 : 'An incident opens after this monitor fails several scheduled checks in a row.'
             }
+            headingLevel={3}
           />
         ) : null}
 
