@@ -81,13 +81,22 @@ export function MonitorHealthList({ monitors }: MonitorHealthListProps) {
             {/* An explicit accessible name: several rows each show a link
                 reading "Edit", and on its own that tells a screen-reader user
                 nothing about which monitor it edits. */}
-            <Link
-              className="health__link"
-              to={paths.monitorEdit(monitor.id)}
-              aria-label={`Edit ${monitor.name}`}
-            >
-              Edit
-            </Link>
+            <p className="health__links">
+              <Link
+                className="health__link"
+                to={paths.monitorHistory(monitor.id)}
+                aria-label={`History for ${monitor.name}`}
+              >
+                History
+              </Link>
+              <Link
+                className="health__link"
+                to={paths.monitorEdit(monitor.id)}
+                aria-label={`Edit ${monitor.name}`}
+              >
+                Edit
+              </Link>
+            </p>
           </li>
         );
       })}

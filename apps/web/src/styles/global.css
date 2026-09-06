@@ -721,3 +721,99 @@ a.button {
 .activity tbody tr:last-child td {
   border-bottom: none;
 }
+
+/* --- History --------------------------------------------------------------- */
+
+.monitor-summary {
+  margin-bottom: calc(var(--space) * 1.5);
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+/* The table scrolls inside this box rather than pushing the page sideways. */
+.table-scroll {
+  overflow-x: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.history {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history th,
+.history td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.history thead th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.history tbody tr:last-child th,
+.history tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.history__time {
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* The error cell is the one that may be long; everything else stays on one
+   line so the columns remain scannable. */
+.history__error {
+  min-width: 220px;
+}
+
+.history__error-type {
+  display: block;
+  font-weight: 500;
+}
+
+.history__error-message {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.health__links {
+  display: flex;
+  gap: 12px;
+  margin: 10px 0 0;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.pager__range {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.pager__controls {
+  display: flex;
+  gap: 8px;
+}
+
+.pager__note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
