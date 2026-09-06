@@ -1,65 +1,178 @@
 /*
- * One stylesheet, plain CSS, custom properties for the handful of values that
- * repeat. No framework: the UI is small, and a utility framework would be a
- * build-time dependency and a vocabulary to learn for very little here.
+ * One stylesheet, plain CSS, driven by tokens. No framework: the UI is small,
+ * and a utility framework would be a build-time dependency and a vocabulary to
+ * learn for very little here.
+ *
+ * The rule this file follows: nothing below the token block invents a colour,
+ * a radius, a shadow or a spacing value. If a component needs one that does
+ * not exist, it is added here rather than hard-coded at the call site — which
+ * is how the previous version ended up with the same green written out five
+ * times.
  */
 
 :root {
-  --color-bg: #f6f7f9;
-  --color-surface: #ffffff;
-  --color-border: #d8dde4;
-  --color-text: #16202c;
-  --color-muted: #5a6674;
-  --color-accent: #1f5eff;
-  --color-danger: #b3261e;
-  --color-success: #1b7f4b;
+  /* --- Surfaces ---------------------------------------------------------- */
+  --bg: #fafbfc;
+  --surface: #ffffff;
+  /* For anything sitting on a surface: table heads, footers, nested panels. */
+  --surface-sunken: #f7f8fa;
+  --surface-hover: #f4f6f8;
 
-  --radius: 6px;
-  --space: 16px;
+  /* --- Borders ------------------------------------------------------------ */
+  --border: #e4e7ec;
+  --border-strong: #d0d5dd;
+
+  /* --- Text --------------------------------------------------------------- */
+  --text: #101828;
+  --text-secondary: #475467;
+  --text-muted: #667085;
+
+  /* --- Accent and semantics ----------------------------------------------- */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #eff4ff;
+
+  --success: #067647;
+  --success-subtle: #ecfdf3;
+  --success-border: #abefc6;
+
+  --warning: #b54708;
+  --warning-subtle: #fffaeb;
+  --warning-border: #fedf89;
+
+  --danger: #b42318;
+  --danger-hover: #912018;
+  --danger-subtle: #fef3f2;
+  --danger-border: #fecdca;
+
+  --info: #175cd3;
+  --info-subtle: #eff8ff;
+  --info-border: #b2ddff;
+
+  /* --- Focus -------------------------------------------------------------- */
+  --focus-ring: 0 0 0 3px rgb(37 99 235 / 18%);
+  --focus-ring-danger: 0 0 0 3px rgb(180 35 24 / 18%);
+
+  /* --- Radii -------------------------------------------------------------- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  /* --- Elevation ---------------------------------------------------------- */
+  /* Deliberately shallow. Depth here means "this is a surface", not "this is
+     floating"; a monitoring tool should look flat and factual. */
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
+  --shadow-md:
+    0 4px 8px -2px rgb(16 24 40 / 8%), 0 2px 4px -2px rgb(16 24 40 / 6%);
+
+  /* --- Spacing ------------------------------------------------------------ */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* --- Type --------------------------------------------------------------- */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Inter, system-ui,
+    sans-serif;
+  /* Technical values — URLs, statuses, timings — line up and read better in a
+     monospace face, and the difference between 502 and 5O2 stops mattering. */
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  /* --- Layout ------------------------------------------------------------- */
+  --container: 1120px;
+  --control-height: 34px;
 
   color-scheme: light;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font:
-    15px/1.5 system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  /* Tight, even tracking: default heading spacing looks loose at these sizes. */
+  letter-spacing: -0.011em;
 }
 
 a {
-  color: var(--color-accent);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
 }
 
 /* Keyboard users must always be able to see where they are. */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Everything that moves, moves at the same speed — and not at all for anyone
+   who has asked their system for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .button,
+  .field__input,
+  .shell__link,
+  .monitor,
+  .headers__item,
+  .health__row,
+  .incident,
+  .history tbody tr,
+  .activity tbody tr {
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease,
+      box-shadow 120ms ease;
+  }
 }
 
 /* Out of the way until it is tabbed to, then the first thing on the page. */
 .skip-link {
   position: absolute;
   left: -9999px;
-  top: 8px;
+  top: var(--sp-2);
   z-index: 10;
-  padding: 8px 12px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  font-weight: 500;
 }
 
 .skip-link:focus {
-  left: 8px;
+  left: var(--sp-2);
 }
 
 /* The skip link's target should not draw a focus ring around the whole page. */
@@ -67,457 +180,7 @@ a {
   outline: none;
 }
 
-/* --- Shell ---------------------------------------------------------------- */
-
-.shell {
-  min-height: 100vh;
-}
-
-.shell__header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space);
-  padding: 12px var(--space);
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.shell__brand {
-  font-weight: 600;
-  text-decoration: none;
-  color: var(--color-text);
-}
-
-.shell__nav {
-  display: flex;
-  gap: 4px;
-  flex: 1;
-}
-
-.shell__link {
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  text-decoration: none;
-  color: var(--color-muted);
-}
-
-.shell__link:hover,
-.shell__link.active {
-  background: var(--color-bg);
-  color: var(--color-text);
-}
-
-.shell__session {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.shell__user {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-  text-align: right;
-}
-
-.shell__user-name {
-  font-weight: 500;
-}
-
-.shell__user-email {
-  color: var(--color-muted);
-  font-size: 13px;
-}
-
-.shell__main {
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: calc(var(--space) * 1.5) var(--space);
-}
-
-/* Below tablet width the header stacks instead of squeezing. */
-@media (max-width: 640px) {
-  .shell__header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .shell__nav {
-    flex-wrap: wrap;
-  }
-
-  .shell__session {
-    justify-content: space-between;
-  }
-}
-
-/* --- Page ----------------------------------------------------------------- */
-
-.page__header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space);
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--space);
-}
-
-.page__title {
-  margin: 0;
-  font-size: 22px;
-}
-
-.page__description {
-  margin: 4px 0 0;
-  color: var(--color-muted);
-}
-
-/* --- Authentication screens ----------------------------------------------- */
-
-.auth {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  min-height: 100vh;
-  padding: calc(var(--space) * 2) var(--space);
-}
-
-.auth__card {
-  width: 100%;
-  max-width: 400px;
-  padding: calc(var(--space) * 1.5);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-}
-
-.auth__brand {
-  margin: 0;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.auth__title {
-  margin: 12px 0 4px;
-  font-size: 22px;
-}
-
-.auth__description {
-  margin: 0 0 var(--space);
-  color: var(--color-muted);
-}
-
-.auth__form {
-  margin: 0;
-}
-
-/* The submit button is the one full-width control: on a phone it is the
-   obvious primary action, and it lines up with the inputs above it. */
-.auth__form .button {
-  width: 100%;
-}
-
-.auth__error {
-  margin: 0 0 var(--space);
-  padding: 10px 12px;
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius);
-  color: var(--color-danger);
-}
-
-.auth__footer {
-  margin: var(--space) 0 0;
-  color: var(--color-muted);
-}
-
-/* --- Primitives ----------------------------------------------------------- */
-
-.button {
-  padding: 8px 14px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  font: inherit;
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.button--primary {
-  background: var(--color-accent);
-  color: #ffffff;
-}
-
-.button--secondary {
-  background: var(--color-surface);
-  border-color: var(--color-border);
-  color: var(--color-text);
-}
-
-.button--danger {
-  background: var(--color-danger);
-  color: #ffffff;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: var(--space);
-}
-
-.field__label {
-  font-weight: 500;
-}
-
-.field__input {
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  font: inherit;
-  background: var(--color-surface);
-  color: inherit;
-}
-
-.field__hint {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 13px;
-}
-
-.field__error {
-  margin: 0;
-  color: var(--color-danger);
-}
-
-.state {
-  padding: calc(var(--space) * 1.5);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  text-align: center;
-  color: var(--color-muted);
-}
-
-.state--error {
-  border-color: var(--color-danger);
-  color: var(--color-text);
-}
-
-.state__title {
-  margin: 0 0 4px;
-  font-size: 16px;
-  color: var(--color-text);
-}
-
-.state__message {
-  margin: 0 0 12px;
-}
-
-/* --- Monitors -------------------------------------------------------------- */
-
-.monitors {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--space);
-}
-
-.monitor {
-  padding: var(--space);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-}
-
-.monitor__header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.monitor__name {
-  margin: 0;
-  font-size: 16px;
-}
-
-.monitor__url {
-  margin: 2px 0 0;
-  color: var(--color-muted);
-  /* User-supplied and often long: wrap it rather than overflow the card. */
-  overflow-wrap: anywhere;
-}
-
-.monitor__state {
-  margin: 0;
-}
-
-.monitor__facts,
-.check__facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space);
-  margin: 12px 0 0;
-}
-
-.monitor__fact dt,
-.check__fact dt {
-  color: var(--color-muted);
-  font-size: 13px;
-}
-
-.monitor__fact dd,
-.check__fact dd {
-  margin: 0;
-}
-
-.monitor__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: var(--space);
-}
-
-.monitor__confirm {
-  margin-top: var(--space);
-  padding: 12px;
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius);
-}
-
-.monitor__confirm-text {
-  margin: 0;
-}
-
-.check {
-  margin-top: var(--space);
-  padding: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-}
-
-.check--success {
-  border-color: var(--color-success);
-}
-
-.check--failure {
-  border-color: var(--color-danger);
-}
-
-.check__headline {
-  margin: 0;
-  font-weight: 500;
-}
-
-.check__message {
-  margin: 12px 0 0;
-  color: var(--color-muted);
-  overflow-wrap: anywhere;
-}
-
-/* --- Monitor form ---------------------------------------------------------- */
-
-.monitor-form {
-  max-width: 640px;
-}
-
-/* Side by side where there is room, stacked on a narrow screen. */
-.monitor-form__row {
-  display: grid;
-  gap: var(--space);
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}
-
-.monitor-form__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.form__error {
-  margin: 0 0 var(--space);
-  padding: 10px 12px;
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius);
-  color: var(--color-danger);
-}
-
-/* --- Headers editor -------------------------------------------------------- */
-
-.headers {
-  margin: 0 0 var(--space);
-  padding: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-}
-
-.headers__legend {
-  padding: 0 4px;
-  font-weight: 500;
-}
-
-.headers__hint,
-.headers__empty {
-  margin: 0 0 12px;
-  color: var(--color-muted);
-  font-size: 13px;
-}
-
-.headers__list {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.headers__item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.headers__name {
-  font-weight: 500;
-}
-
-.headers__value {
-  flex: 1;
-  color: var(--color-muted);
-  overflow-wrap: anywhere;
-}
-
-.headers__add {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  align-items: end;
-}
-
-/* A link styled as a button still needs to look like one. */
-a.button {
-  display: inline-block;
-  text-decoration: none;
-  text-align: center;
-}
-
-/* --- Dashboard ------------------------------------------------------------- */
-
-.page__actions-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* Visible to screen readers only — used to give repeated links, such as one
-   "Edit" per row, a name that says which monitor they act on. */
+/* Visible to screen readers only. */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -529,294 +192,1264 @@ a.button {
   white-space: nowrap;
 }
 
-.cards {
-  list-style: none;
-  margin: 0 0 calc(var(--space) * 1.5);
-  padding: 0;
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+/* --- Shell ---------------------------------------------------------------- */
+
+.shell {
+  min-height: 100vh;
 }
 
-.card {
-  padding: 12px 14px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-left-width: 3px;
-  border-radius: var(--radius);
+.shell__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  height: 56px;
+  padding: 0 var(--sp-5);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
-/* Tone reinforces the number; the label and note carry the meaning on their
-   own, so nothing here depends on colour alone. */
-.card--good {
-  border-left-color: var(--color-success);
-}
-
-.card--bad {
-  border-left-color: var(--color-danger);
-}
-
-.card__label {
-  margin: 0;
-  font-size: 13px;
-  color: var(--color-muted);
-}
-
-.card__value {
-  margin: 2px 0;
-  font-size: 26px;
+.shell__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
   font-weight: 600;
-  line-height: 1.1;
-}
-
-.card__note {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-muted);
-}
-
-.section {
-  margin-bottom: calc(var(--space) * 1.5);
-}
-
-.section__title {
-  margin: 0 0 12px;
-  font-size: 16px;
-}
-
-.section__empty {
-  margin: 0;
-  padding: 12px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-muted);
-}
-
-.badge {
-  display: inline-block;
-  padding: 1px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--fs-base);
+  letter-spacing: -0.01em;
+  color: var(--text);
   white-space: nowrap;
+}
+
+.shell__brand:hover {
+  text-decoration: none;
+}
+
+/* A mark rather than a logo file: a filled square with a dot, which reads as a
+   status indicator — which is what the product is about. */
+.shell__mark {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+
+.shell__mark::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.shell__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: 1;
+}
+
+.shell__link {
+  position: relative;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.shell__link:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  text-decoration: none;
+}
+
+/* The current page is marked by weight and a rule, not by colour alone. */
+.shell__link.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.shell__link.active::after {
+  content: '';
+  position: absolute;
+  left: var(--sp-3);
+  right: var(--sp-3);
+  bottom: -17px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.shell__session {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.shell__user {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.shell__user-name {
+  font-weight: 500;
+  font-size: var(--fs-sm);
+}
+
+.shell__user-email {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.shell__main {
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-5) var(--sp-7);
+}
+
+@media (max-width: 760px) {
+  .shell__header {
+    height: auto;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    position: static;
+  }
+
+  .shell__nav {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .shell__link.active::after {
+    bottom: 2px;
+  }
+
+  .shell__session {
+    margin-left: auto;
+  }
+
+  .shell__main {
+    padding: var(--sp-5) var(--sp-4) var(--sp-6);
+  }
+}
+
+@media (max-width: 420px) {
+  .shell__user {
+    display: none;
+  }
+}
+
+/* --- Page ----------------------------------------------------------------- */
+
+.page__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--sp-5);
+}
+
+.page__title {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.page__description {
+  margin: var(--sp-2) 0 0;
+  max-width: 62ch;
+  color: var(--text-secondary);
+}
+
+.page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+.page__actions-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: var(--control-height);
+  padding: 0 var(--sp-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.button--primary {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.button--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.button--secondary {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.button--secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.button--danger {
+  background: var(--danger);
+  color: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.button--danger:hover:not(:disabled) {
+  background: var(--danger-hover);
+}
+
+.button--danger:focus-visible {
+  outline-color: var(--danger);
+}
+
+/* A press should feel like a press. One pixel is enough. */
+@media (prefers-reduced-motion: no-preference) {
+  .button--primary:active:not(:disabled),
+  .button--secondary:active:not(:disabled),
+  .button--danger:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+}
+
+/* Text-weight action, for dense rows where solid buttons would compete with
+   the data they belong to. */
+.button--subtle {
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+
+.button--subtle:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.button--subtle-danger {
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  background: transparent;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+
+.button--subtle-danger:hover:not(:disabled) {
+  background: var(--danger-subtle);
+}
+
+.button--subtle-danger:focus-visible {
+  outline-color: var(--danger);
+}
+
+/* A link that has to sit in a row of buttons. */
+a.button,
+a.button:hover {
+  text-decoration: none;
+}
+
+/* --- Fields --------------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+}
+
+.field__label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.field__input {
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: var(--fs-base);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+select.field__input {
+  height: var(--control-height);
+  padding: 0 var(--sp-2);
+}
+
+.field__input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.field__input:disabled {
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* Read-only is not disabled: still focusable, still readable, shown as
+   settled rather than unavailable. */
+.field__input[readonly] {
+  background: var(--surface-sunken);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.field__input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.field__input[aria-invalid='true']:focus {
+  box-shadow: var(--focus-ring-danger);
+}
+
+.field__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+/* The marker is not decoration: it carries "error" where the colour does not
+   survive — a monochrome display, or a reader who cannot see red. */
+.field__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.field__error::before {
+  content: '! ';
+  font-weight: 700;
+}
+
+/* --- Badges --------------------------------------------------------------- */
+
+/* Every badge carries its meaning in its text. The dot and the tint reinforce
+   it; neither is load-bearing. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 2px var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+  flex: none;
 }
 
 .badge--healthy,
 .badge--active {
-  border-color: var(--color-success);
-  color: var(--color-success);
+  background: var(--success-subtle);
+  border-color: var(--success-border);
+  color: var(--success);
 }
 
 .badge--failing,
 .badge--incident {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+  color: var(--danger);
 }
 
 .badge--unchecked,
 .badge--paused {
-  color: var(--color-muted);
+  background: var(--surface-sunken);
+  border-color: var(--border-strong);
+  color: var(--text-muted);
 }
+
+/* Paused is a hollow marker: a state we chose, not one we observed. */
+.badge--paused::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentcolor;
+}
+
+/* --- Sections and surfaces ------------------------------------------------ */
+
+.section {
+  margin-bottom: var(--sp-6);
+}
+
+.section__title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.section__empty {
+  margin: 0;
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* --- Loading / empty / error ---------------------------------------------- */
+
+.state {
+  padding: var(--sp-7) var(--sp-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.section .state {
+  padding: var(--sp-5);
+}
+
+.state--error {
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+  color: var(--text-secondary);
+}
+
+.state__title {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.state__message {
+  margin: 0 auto var(--sp-4);
+  max-width: 46ch;
+  font-size: var(--fs-base);
+}
+
+/* The loading state is quieter than the other two: it is not news. */
+p.state {
+  padding: var(--sp-6) var(--sp-5);
+  font-size: var(--fs-sm);
+}
+
+/* --- Authentication screens ----------------------------------------------- */
+
+.auth {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: var(--sp-6) var(--sp-4);
+  background: var(--bg);
+}
+
+.auth__card {
+  width: 100%;
+  max-width: 400px;
+  padding: var(--sp-6);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.auth__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-5);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.auth__title {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+
+.auth__description {
+  margin: 0 0 var(--sp-5);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+
+.auth__form {
+  margin: 0;
+}
+
+/* The submit button is the one full-width control: on a phone it is the
+   obvious primary action, and it lines up with the inputs above it. */
+.auth__form .button {
+  width: 100%;
+  margin-top: var(--sp-1);
+}
+
+.auth__error {
+  display: flex;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-3);
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.auth__error::before {
+  content: '!';
+  font-weight: 700;
+}
+
+.auth__footer {
+  margin: var(--sp-5) 0 0;
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+/* --- Monitor list --------------------------------------------------------- */
+
+/* Rows in one surface with hairline separators, rather than a stack of cards:
+   twenty monitors should read as one table, not twenty objects. */
+.monitors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.monitor {
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.monitor:last-child {
+  border-bottom: none;
+}
+
+.monitor:hover {
+  background: var(--surface-hover);
+}
+
+.monitor__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.monitor__identity {
+  min-width: 0;
+}
+
+.monitor__name {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.monitor__url {
+  margin: var(--sp-1) 0 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+.monitor__state {
+  margin: 0;
+}
+
+.monitor__facts,
+.check__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  margin: var(--sp-3) 0 0;
+}
+
+.monitor__fact dt,
+.check__fact dt {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.monitor__fact dd,
+.check__fact dd {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.monitor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-3);
+}
+
+/* The destructive action is pushed away from the routine ones, so it is not
+   the neighbour of the button someone is aiming for. */
+.monitor__actions-spacer {
+  flex: 1;
+}
+
+.monitor__confirm {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--danger-subtle);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+}
+
+.monitor__confirm-text {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+/* --- Manual check result -------------------------------------------------- */
+
+.check {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.check--success {
+  background: var(--success-subtle);
+  border-color: var(--success-border);
+}
+
+.check--failure {
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+}
+
+.check__headline {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.check--success .check__headline {
+  color: var(--success);
+}
+
+.check--failure .check__headline {
+  color: var(--danger);
+}
+
+.check__facts {
+  gap: var(--sp-4);
+  margin-top: var(--sp-2);
+}
+
+.check__message {
+  margin: var(--sp-2) 0 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+/* --- Monitor form --------------------------------------------------------- */
+
+/* Form pages are one column of decisions. Narrowing the whole page keeps the
+   title, the card and the actions on the same measure, instead of leaving a
+   field of empty space beside a card that floats in a 1120px column. */
+.page:has(.monitor-form) {
+  max-width: 720px;
+  margin-inline: auto;
+}
+
+.monitor-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Each group of fields is a band with a hairline above it, so the form reads
+   as three decisions rather than eight boxes.
+   The reset matters: a <fieldset> draws its own border and cuts a notch in it
+   for the legend, which is exactly the "unfinished" look this is replacing. */
+.form-section {
+  margin: 0;
+  padding: var(--sp-5);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  min-inline-size: 0;
+}
+
+.form-section__title {
+  padding: 0;
+}
+
+.form-section__title {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.form-section__description {
+  margin: var(--sp-1) 0 var(--sp-4);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.form-section > .field:last-child,
+.form-section > .monitor-form__row:last-child .field {
+  margin-bottom: 0;
+}
+
+.monitor-form__row {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.monitor-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.form__error {
+  display: flex;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--danger-subtle);
+  border-bottom: 1px solid var(--danger-border);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.form__error::before {
+  content: '!';
+  font-weight: 700;
+}
+
+/* The monitor row shows the same error inline, where there is no form band. */
+.monitor .form__error {
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+}
+
+/* --- Headers editor ------------------------------------------------------- */
+
+.headers {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.headers__legend {
+  padding: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.headers__hint {
+  margin: var(--sp-1) 0 var(--sp-4);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.headers__list {
+  list-style: none;
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* One row per header — name, value, remove — reading like the request it
+   builds. */
+.headers__item {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.headers__item:last-child {
+  border-bottom: none;
+}
+
+.headers__item:hover {
+  background: var(--surface-hover);
+}
+
+.headers__name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.headers__value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.headers__empty {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--surface-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.headers__empty-title {
+  display: block;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* The add row is its own panel, so two inputs and a button read as one control
+   rather than three strays. */
+.headers__add {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr auto;
+  align-items: end;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.headers__add .field {
+  margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .headers__add {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .headers__item {
+    grid-template-columns: 1fr auto;
+  }
+
+  .headers__value {
+    grid-column: 1 / -1;
+  }
+}
+
+/* --- Dashboard ------------------------------------------------------------ */
+
+.cards {
+  list-style: none;
+  margin: 0 0 var(--sp-6);
+  padding: 0;
+  display: grid;
+  gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+}
+
+.card {
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* A metric that needs attention says so with a tinted surface, not only with a
+   coloured number. */
+.card--bad {
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+}
+
+.card__label {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.card__value {
+  margin: var(--sp-2) 0 var(--sp-1);
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.card--good .card__value {
+  color: var(--success);
+}
+
+.card--bad .card__value {
+  color: var(--danger);
+}
+
+.card__note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* --- Health list and incidents -------------------------------------------- */
 
 .health,
 .incidents {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.incidents {
+  border-color: var(--danger-border);
 }
 
 .health__row,
 .incident {
-  padding: 12px 14px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-left-width: 3px;
-  border-radius: var(--radius);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
 }
 
+.health__row:last-child,
+.incident:last-child {
+  border-bottom: none;
+}
+
+.health__row:hover,
+.incident:hover {
+  background: var(--surface-hover);
+}
+
+/* A failing row gets a marker down its left edge — position and tint, while
+   the badge already says "Failing" in words. */
 .health__row--failing,
 .incident {
-  border-left-color: var(--color-danger);
+  border-left: 3px solid var(--danger);
 }
 
 .health__row--healthy {
-  border-left-color: var(--color-success);
+  border-left: 3px solid transparent;
 }
 
-.health__identity,
+.health__row--unchecked {
+  border-left: 3px solid var(--border-strong);
+}
+
+/* The incident header puts its badge opposite the name; the health row's
+   identity is a stacked name-over-URL, not two things sharing a line. */
 .incident__header {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--sp-3);
   justify-content: space-between;
+}
+
+.health__identity {
+  min-width: 0;
 }
 
 .health__name,
 .incident__name {
   margin: 0;
+  font-size: var(--fs-base);
   font-weight: 600;
 }
 
 .health__url,
 .incident__url {
-  margin: 2px 0 0;
-  color: var(--color-muted);
-  font-size: 13px;
+  margin: var(--sp-1) 0 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 
 .health__badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
 }
 
 .health__facts {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space);
-  margin: 10px 0 0;
+  gap: var(--sp-5);
+  margin: var(--sp-3) 0 0;
 }
 
 .health__fact dt {
-  font-size: 12px;
-  color: var(--color-muted);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 
 .health__fact dd {
   margin: 0;
-  font-size: 14px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.health__links {
+  display: flex;
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0 0;
 }
 
 .health__link {
-  display: inline-block;
-  margin-top: 10px;
-  font-size: 14px;
-}
-
-/* The table scrolls inside its own box rather than pushing the page sideways
-   on a narrow screen. */
-.activity {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.activity th,
-.activity td {
-  padding: 8px 12px;
-  text-align: left;
-  border-bottom: 1px solid var(--color-border);
-  white-space: nowrap;
-}
-
-.activity thead th {
-  font-size: 12px;
-  color: var(--color-muted);
+  font-size: var(--fs-sm);
   font-weight: 500;
 }
 
+/* --- Tables --------------------------------------------------------------- */
+
+/* The wrapper scrolls, not the table: `display: block` on a <table> stops its
+   columns aligning, and letting the table overflow pushes the page sideways. */
+.table-scroll {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.history,
+.activity {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.history th,
+.history td,
+.activity th,
+.activity td {
+  padding: var(--sp-3) var(--sp-4);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.history thead th,
+.activity thead th {
+  padding-top: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  background: var(--surface-sunken);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.history tbody tr:last-child th,
+.history tbody tr:last-child td,
 .activity tbody tr:last-child th,
 .activity tbody tr:last-child td {
   border-bottom: none;
 }
 
-/* --- History --------------------------------------------------------------- */
-
-.monitor-summary {
-  margin-bottom: calc(var(--space) * 1.5);
-  padding: 12px 14px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+.history tbody tr:hover,
+.activity tbody tr:hover {
+  background: var(--surface-hover);
 }
 
-/* The table scrolls inside this box rather than pushing the page sideways. */
-.table-scroll {
-  overflow-x: auto;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-}
-
-.history {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.history th,
-.history td {
-  padding: 8px 12px;
-  text-align: left;
-  vertical-align: top;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.history thead th {
-  font-size: 12px;
+.history tbody th[scope='row'],
+.activity tbody th[scope='row'] {
   font-weight: 500;
-  color: var(--color-muted);
+}
+
+/* Timestamps, statuses and timings are technical values: monospace and tabular
+   figures make a column of them comparable at a glance.
+   Marked per cell rather than by position — the check and incident tables
+   share this class but not their column order. */
+.history__time,
+.history__mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  color: var(--text-secondary);
 }
 
-.history tbody tr:last-child th,
-.history tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.history__time {
-  font-weight: 400;
-  white-space: nowrap;
-}
-
-/* The error cell is the one that may be long; everything else stays on one
-   line so the columns remain scannable. */
 .history__error {
-  min-width: 220px;
+  min-width: 240px;
 }
 
 .history__error-type {
   display: block;
   font-weight: 500;
+  color: var(--text);
 }
 
 .history__error-message {
-  color: var(--color-muted);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 
-.health__links {
-  display: flex;
-  gap: 12px;
-  margin: 10px 0 0;
+/* --- Monitor summary (history page header) -------------------------------- */
+
+.monitor-summary {
+  gap: var(--sp-6);
+  margin: 0 0 var(--sp-6);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
+
+.monitor-summary dd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+/* --- Pagination ----------------------------------------------------------- */
 
 .pager {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-top: 12px;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
 }
 
 .pager__range {
   margin: 0;
-  color: var(--color-muted);
-  font-size: 13px;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .pager__controls {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-2);
+  margin-left: auto;
 }
 
 .pager__note {
   flex-basis: 100%;
   margin: 0;
-  color: var(--color-muted);
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+/* The "Optional" qualifier reads as metadata, not as part of the label. */
+.headers__optional {
+  margin-left: var(--sp-2);
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }

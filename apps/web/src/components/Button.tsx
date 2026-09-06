@@ -1,7 +1,11 @@
 import type { ButtonHTMLAttributes, Ref } from 'react';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'danger';
+  /**
+   * `subtle` and `subtle-danger` are text-weight actions for dense rows, where
+   * a line of solid buttons would compete with the data it belongs to.
+   */
+  variant?: 'primary' | 'secondary' | 'danger' | 'subtle' | 'subtle-danger';
   /**
    * Forwarded to the underlying element, so a caller can move focus here —
    * a confirmation replacing the control that opened it, say. React 19 passes

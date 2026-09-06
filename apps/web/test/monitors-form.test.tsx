@@ -293,8 +293,12 @@ describe('header editor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add header' }));
     expect(await screen.findByText(/accept is already set/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
-    expect(screen.getByText('No headers added.')).toBeTruthy();
+    // Named for the header it removes: several rows can each show "Remove",
+    // and on its own that says nothing about which one it acts on.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove Accept header' }),
+    );
+    expect(screen.getByText('No custom headers')).toBeTruthy();
   });
 
   it('refuses an empty value and one containing a control character', async () => {

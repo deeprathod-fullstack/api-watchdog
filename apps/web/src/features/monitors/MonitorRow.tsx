@@ -208,17 +208,21 @@ export function MonitorRow({
           {/* Deliberately enabled while paused: pausing stops the *schedule*,
               and checking a paused monitor by hand is the main reason the
               endpoint exists. */}
+          {/* Text-weight actions: a row of solid buttons would compete with
+              the monitor data they belong to. */}
           <Button
-            variant="secondary"
+            variant="subtle"
             disabled={busy}
+            aria-busy={pending === 'check'}
             onClick={() => void handleManualCheck()}
           >
             {pending === 'check' ? 'Checking…' : 'Check now'}
           </Button>
 
           <Button
-            variant="secondary"
+            variant="subtle"
             disabled={busy}
+            aria-busy={pending === 'toggle'}
             onClick={() => void handleToggleActive()}
           >
             {pending === 'toggle'
@@ -231,22 +235,26 @@ export function MonitorRow({
           </Button>
 
           <Link
-            className="button button--secondary"
+            className="button button--subtle"
             to={paths.monitorEdit(monitor.id)}
           >
             Edit
           </Link>
 
           <Link
-            className="button button--secondary"
+            className="button button--subtle"
             to={paths.monitorHistory(monitor.id)}
           >
             History
           </Link>
 
+          {/* Pushes Delete to the far end, so it is not the neighbour of the
+              control someone is actually aiming for. */}
+          <span className="monitor__actions-spacer" />
+
           <Button
             ref={deleteButtonRef}
-            variant="danger"
+            variant="subtle-danger"
             disabled={busy}
             onClick={() => {
               setConfirmingDelete(true);

@@ -31,6 +31,9 @@ export function AppShell() {
 
       <header className="shell__header">
         <Link className="shell__brand" to={paths.dashboard}>
+          {/* Drawn in CSS rather than shipped as an asset: two shapes that
+              read as a status indicator, which is what the product is. */}
+          <span className="shell__mark" aria-hidden="true" />
           API Watchdog
         </Link>
 

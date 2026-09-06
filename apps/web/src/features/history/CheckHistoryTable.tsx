@@ -82,9 +82,9 @@ export function CheckHistoryTable({ checks }: CheckHistoryTableProps) {
                 </td>
                 {/* A check that never got a response has no status. It is a
                     dash, never "0" and never "HTTP 0". */}
-                <td>{check.httpStatus ?? '—'}</td>
+                <td className="history__mono">{check.httpStatus ?? '—'}</td>
                 {/* Likewise a response time: absent is absent, not 0 ms. */}
-                <td>
+                <td className="history__mono">
                   {check.responseTimeMs === null
                     ? '—'
                     : `${String(check.responseTimeMs)} ms`}

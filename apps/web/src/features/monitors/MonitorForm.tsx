@@ -133,113 +133,133 @@ export function MonitorForm({
         </p>
       ) : null}
 
-      <Field
-        label="Name"
-        name="name"
-        autoFocus
-        required
-        value={name}
-        error={fieldErrors.name}
-        disabled={submitting}
-        onChange={(e) => {
-          setName(e.target.value);
-        }}
-      />
+      {/* Three bands, not eight boxes: what to watch, how to watch it, and
+          what to send. Each is a decision the user makes separately. */}
+      <section className="form-section">
+        <h2 className="form-section__title">Monitor details</h2>
+        <p className="form-section__description">
+          The endpoint to watch and what to call it.
+        </p>
 
-      <Field
-        label="URL"
-        name="url"
-        type="url"
-        inputMode="url"
-        required
-        placeholder="https://api.example.com/health"
-        value={url}
-        error={fieldErrors.url}
-        hint="Public http:// or https:// endpoint, on the default port."
-        disabled={submitting}
-        onChange={(e) => {
-          setUrl(e.target.value);
-        }}
-      />
+        <Field
+          label="Name"
+          name="name"
+          autoFocus
+          required
+          value={name}
+          error={fieldErrors.name}
+          disabled={submitting}
+          onChange={(e) => {
+            setName(e.target.value);
+          }}
+        />
 
-      {/* Method is GET in V1: a stated fact rather than a select with one
+        <Field
+          label="URL"
+          name="url"
+          type="url"
+          inputMode="url"
+          required
+          placeholder="https://api.example.com/health"
+          value={url}
+          error={fieldErrors.url}
+          hint="Public http:// or https:// endpoint, on the default port."
+          disabled={submitting}
+          onChange={(e) => {
+            setUrl(e.target.value);
+          }}
+        />
+
+        {/* Method is GET in V1: a stated fact rather than a select with one
           option. `readOnly` rather than `disabled` — a disabled input is
           removed from the tab order and skipped by most screen readers, which
           would hide the one field explaining the constraint from exactly the
           people who need it explained. */}
-      <Field
-        label="Method"
-        name="method"
-        value="GET"
-        readOnly
-        hint="V1 checks public GET endpoints only."
-      />
-
-      <div className="monitor-form__row">
         <Field
-          label="Expected status"
-          name="expectedStatus"
-          type="number"
-          inputMode="numeric"
-          min={EXPECTED_STATUS_MIN}
-          max={EXPECTED_STATUS_MAX}
-          required
-          value={expectedStatus}
-          error={fieldErrors.expectedStatus}
-          hint="The check passes when the endpoint returns this status."
-          disabled={submitting}
-          onChange={(e) => {
-            setExpectedStatus(e.target.value);
-          }}
+          label="Method"
+          name="method"
+          value="GET"
+          readOnly
+          hint="V1 checks public GET endpoints only."
         />
+      </section>
 
-        <Field
-          label="Check interval (seconds)"
-          name="intervalSeconds"
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={INTERVAL_MAX_SECONDS}
-          required
-          value={intervalSeconds}
-          error={fieldErrors.intervalSeconds}
-          hint="How often a scheduled check runs."
-          disabled={submitting}
-          onChange={(e) => {
-            setIntervalSeconds(e.target.value);
-          }}
-        />
+      <section className="form-section">
+        <h2 className="form-section__title">Check configuration</h2>
+        <p className="form-section__description">
+          What counts as a passing check, and how often it runs.
+        </p>
 
-        <Field
-          label="Timeout (ms)"
-          name="timeoutMs"
-          type="number"
-          inputMode="numeric"
-          min={TIMEOUT_MIN_MS}
-          max={TIMEOUT_MAX_MS}
-          required
-          value={timeoutMs}
-          error={fieldErrors.timeoutMs}
-          hint={`Between ${String(TIMEOUT_MIN_MS)} and ${String(TIMEOUT_MAX_MS)} ms.`}
+        <div className="monitor-form__row">
+          <Field
+            label="Expected status"
+            name="expectedStatus"
+            type="number"
+            inputMode="numeric"
+            min={EXPECTED_STATUS_MIN}
+            max={EXPECTED_STATUS_MAX}
+            required
+            value={expectedStatus}
+            error={fieldErrors.expectedStatus}
+            hint="The check passes when the endpoint returns this status."
+            disabled={submitting}
+            onChange={(e) => {
+              setExpectedStatus(e.target.value);
+            }}
+          />
+
+          <Field
+            label="Check interval (seconds)"
+            name="intervalSeconds"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={INTERVAL_MAX_SECONDS}
+            required
+            value={intervalSeconds}
+            error={fieldErrors.intervalSeconds}
+            hint="How often a scheduled check runs."
+            disabled={submitting}
+            onChange={(e) => {
+              setIntervalSeconds(e.target.value);
+            }}
+          />
+
+          <Field
+            label="Timeout (ms)"
+            name="timeoutMs"
+            type="number"
+            inputMode="numeric"
+            min={TIMEOUT_MIN_MS}
+            max={TIMEOUT_MAX_MS}
+            required
+            value={timeoutMs}
+            error={fieldErrors.timeoutMs}
+            hint={`Between ${String(TIMEOUT_MIN_MS)} and ${String(TIMEOUT_MAX_MS)} ms.`}
+            disabled={submitting}
+            onChange={(e) => {
+              setTimeoutMs(e.target.value);
+            }}
+          />
+        </div>
+      </section>
+
+      <div className="form-section">
+        <HeadersEditor
+          headers={headers}
+          onChange={setHeaders}
           disabled={submitting}
-          onChange={(e) => {
-            setTimeoutMs(e.target.value);
-          }}
         />
       </div>
 
-      <HeadersEditor
-        headers={headers}
-        onChange={setHeaders}
-        disabled={submitting}
-      />
-
+      {/* Cancel first, primary last: the destructive-of-progress action sits
+          away from where the pointer lands for the affirmative one. */}
       <div className="monitor-form__actions">
-        <Button type="submit" disabled={submitting}>
-          {submitting ? submittingLabel : submitLabel}
-        </Button>
         <Button variant="secondary" onClick={onCancel} disabled={submitting}>
           Cancel
+        </Button>
+        <Button type="submit" disabled={submitting} aria-busy={submitting}>
+          {submitting ? submittingLabel : submitLabel}
         </Button>
       </div>
     </form>
