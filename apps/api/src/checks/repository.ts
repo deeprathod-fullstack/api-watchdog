@@ -32,6 +32,16 @@ interface CheckResultRow {
   checked_at: Date;
 }
 
+/**
+ * Anything that can run a statement: the pool, or one client inside a
+ * transaction.
+ *
+ * A manual check writes one row and needs no transaction. A scheduled check
+ * writes that row *and* moves an incident, and those two must land together or
+ * not at all. Both paths run the same insert, so it accepts either.
+ */
+export type Queryable = Pick<pg.Pool, 'query'>;
+
 /** The monitor disappeared between authorisation and the write. */
 export class MonitorGoneError extends Error {
   override readonly name = 'MonitorGoneError';
@@ -56,17 +66,16 @@ function toCheckResult(row: CheckResultRow): CheckResult {
 /**
  * Record one check.
  *
- * A single statement, so no transaction: `INSERT` is already atomic, and
- * wrapping it would add two round trips for nothing. That changes when
- * incidents arrive and a check plus an incident transition must land together
- * or not at all — the invariant that earns a transaction does not exist yet.
- *
  * `checked_at` is left to the column default so the database owns the
- * timestamp. No response body is written; there is no column for one, and
- * nothing upstream holds one.
+ * timestamp — which also means that inside a transaction every statement sees
+ * the same `now()`, and a check and the incident it triggers share one instant
+ * rather than two that could be ordered wrongly.
+ *
+ * No response body is written; there is no column for one, and nothing
+ * upstream holds one.
  */
 export async function insertCheckResult(
-  db: pg.Pool,
+  db: Queryable,
   monitorId: string,
   check: ClassifiedCheck,
 ): Promise<CheckResult> {
