@@ -1,7 +1,13 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { USER, errorResponse, jsonResponse, renderApp } from './helpers.js';
+import {
+  USER,
+  dashboardResponse,
+  errorResponse,
+  jsonResponse,
+  renderApp,
+} from './helpers.js';
 
 function fillIn(label: RegExp | string, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
@@ -62,7 +68,11 @@ describe('login', () => {
   it('signs in, stores the token and lands on the dashboard', async () => {
     const { storage, getRequests } = renderApp({
       path: '/login',
-      responses: [jsonResponse(200, { user: USER, token: 'token-abc' })],
+      responses: [
+        jsonResponse(200, { user: USER, token: 'token-abc' }),
+        // Landing on the dashboard issues its own request.
+        dashboardResponse(),
+      ],
     });
 
     await screen.findByRole('heading', { name: 'Sign in' });
@@ -165,8 +175,11 @@ describe('login', () => {
   it('refuses a second submission while one is in flight', async () => {
     const { fetchImpl } = renderApp({
       path: '/login',
-      // One queued response; a second request would throw in the fake.
-      responses: [jsonResponse(200, { user: USER, token: 'token-abc' })],
+      // One login response; a second login attempt would starve the queue.
+      responses: [
+        jsonResponse(200, { user: USER, token: 'token-abc' }),
+        dashboardResponse(),
+      ],
     });
 
     await screen.findByRole('heading', { name: 'Sign in' });
@@ -179,7 +192,8 @@ describe('login', () => {
 
     await screen.findByRole('heading', { level: 1, name: 'Dashboard' });
     await waitFor(() => {
-      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      // One login, one dashboard load — not three logins.
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
     });
   });
 });

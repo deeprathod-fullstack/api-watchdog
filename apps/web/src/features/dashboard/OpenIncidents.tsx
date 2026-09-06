@@ -65,9 +65,12 @@ export function OpenIncidents({ monitors }: OpenIncidentsProps) {
               <dd>{formatResponseTime(monitor.latestResponseTimeMs)}</dd>
             </div>
           </dl>
-          <Link className="health__link" to={paths.monitorEdit(monitor.id)}>
+          <Link
+            className="health__link"
+            to={paths.monitorEdit(monitor.id)}
+            aria-label={`Edit ${monitor.name}`}
+          >
             Edit
-            <span className="visually-hidden"> {monitor.name}</span>
           </Link>
         </li>
       ))}

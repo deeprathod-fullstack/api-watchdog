@@ -40,6 +40,31 @@ export function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+/**
+ * An empty dashboard payload.
+ *
+ * Every authenticated landing on `/` issues one dashboard request, so tests
+ * that pass through the dashboard on their way somewhere else queue this to
+ * satisfy it without saying anything about dashboard behaviour.
+ */
+export function dashboardResponse(
+  summary: Partial<Record<string, number>> = {},
+  monitors: unknown[] = [],
+): Response {
+  return jsonResponse(200, {
+    summary: {
+      total: 0,
+      active: 0,
+      healthy: 0,
+      failing: 0,
+      unknown: 0,
+      openIncidents: 0,
+      ...summary,
+    },
+    monitors,
+  });
+}
+
 export function errorResponse(status: number, code: string, message: string) {
   return jsonResponse(status, { error: { code, message } });
 }
@@ -51,7 +76,10 @@ export function errorResponse(status: number, code: string, message: string) {
  * server would produce and nothing else. Tests assert on the recorded requests
  * rather than on how the client was called internally.
  */
-export function createFakeApi(responses: (Response | Error)[] = []) {
+/** A queue entry: a response, a rejection, or a promise that may never settle. */
+export type FakeResponse = Response | Error | Promise<Response>;
+
+export function createFakeApi(responses: FakeResponse[] = []) {
   const queue = [...responses];
 
   const fetchImpl = vi.fn((url: string, _init: RequestInit) => {
@@ -66,7 +94,7 @@ export function createFakeApi(responses: (Response | Error)[] = []) {
   return {
     fetchImpl,
     /** Queue another response, for a second request within one test. */
-    enqueue: (response: Response | Error) => {
+    enqueue: (response: FakeResponse) => {
       queue.push(response);
     },
     /**
@@ -89,7 +117,7 @@ export function createFakeApi(responses: (Response | Error)[] = []) {
 export interface RenderAppOptions {
   path?: string;
   token?: string;
-  responses?: (Response | Error)[];
+  responses?: FakeResponse[];
 }
 
 /**

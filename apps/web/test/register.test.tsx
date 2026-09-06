@@ -1,7 +1,13 @@
 import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { USER, errorResponse, jsonResponse, renderApp } from './helpers.js';
+import {
+  USER,
+  dashboardResponse,
+  errorResponse,
+  jsonResponse,
+  renderApp,
+} from './helpers.js';
 
 const PASSWORD = 'correct horse battery';
 
@@ -86,7 +92,10 @@ describe('register', () => {
   it('registers, stores the token, and never sends the confirmation', async () => {
     const { storage, getRequests } = renderApp({
       path: '/register',
-      responses: [jsonResponse(201, { user: USER, token: 'token-new' })],
+      responses: [
+        jsonResponse(201, { user: USER, token: 'token-new' }),
+        dashboardResponse(),
+      ],
     });
 
     await screen.findByRole('heading', { name: 'Create an account' });
@@ -111,7 +120,10 @@ describe('register', () => {
   it('trims a name before sending it', async () => {
     const { getRequests } = renderApp({
       path: '/register',
-      responses: [jsonResponse(201, { user: USER, token: 'token-new' })],
+      responses: [
+        jsonResponse(201, { user: USER, token: 'token-new' }),
+        dashboardResponse(),
+      ],
     });
 
     await screen.findByRole('heading', { name: 'Create an account' });
