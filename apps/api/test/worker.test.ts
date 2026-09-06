@@ -35,6 +35,7 @@ import {
   registerTestUser,
   testConfig,
   testPool,
+  TEST_QUEUE_PREFIX,
   type TestUser,
 } from './helpers.js';
 
@@ -203,7 +204,7 @@ async function storedChecks(monitorId: string) {
 
 beforeAll(async () => {
   redis = createRedisConnection(config);
-  queue = createChecksQueue(redis);
+  queue = createChecksQueue(redis, TEST_QUEUE_PREFIX);
   app = buildTestApp(config, db, { scheduler: new BullMqScheduler(queue) });
   owner = await registerTestUser(app);
 });
@@ -416,7 +417,7 @@ describe('the worker process', () => {
     const worker = new Worker<CheckJobData>(
       CHECKS_QUEUE_NAME,
       (job) => runScheduledCheck(db, testExecutor, job.data.monitorId),
-      { connection: workerRedis, concurrency: 1 },
+      { connection: workerRedis, concurrency: 1, prefix: TEST_QUEUE_PREFIX },
     );
 
     try {

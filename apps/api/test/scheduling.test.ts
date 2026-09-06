@@ -16,6 +16,7 @@ import {
   registerTestUser,
   testConfig,
   testPool,
+  TEST_QUEUE_PREFIX,
   type TestUser,
 } from './helpers.js';
 
@@ -93,7 +94,7 @@ async function patchMonitor(
 
 beforeAll(async () => {
   redis = createRedisConnection(config);
-  queue = createChecksQueue(redis);
+  queue = createChecksQueue(redis, TEST_QUEUE_PREFIX);
   app = buildTestApp(config, db, { scheduler: new BullMqScheduler(queue) });
   owner = await registerTestUser(app);
 });

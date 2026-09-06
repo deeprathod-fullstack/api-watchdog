@@ -35,9 +35,25 @@ export interface CheckJobData {
   readonly monitorId: string;
 }
 
-export function createChecksQueue(connection: ConnectionOptions): Queue {
+/**
+ * The Redis key namespace the queue lives under.
+ *
+ * BullMQ's default. It is a parameter rather than a hard-coded string so the
+ * test suite can run under a namespace of its own: a queue is identified by
+ * prefix *and* name, so a worker a developer happens to have running locally
+ * would otherwise consume the jobs the tests just enqueued — and the tests
+ * would sit and wait for results that another process had already taken. That
+ * is not a hypothetical; it is how this parameter came to exist.
+ */
+export const DEFAULT_QUEUE_PREFIX = 'bull';
+
+export function createChecksQueue(
+  connection: ConnectionOptions,
+  prefix: string = DEFAULT_QUEUE_PREFIX,
+): Queue {
   return new Queue(CHECKS_QUEUE_NAME, {
     connection,
+    prefix,
     defaultJobOptions: {
       // A check that fails is not retried. The failure *is* the result: it has
       // already been classified and written to check_results, and a retry

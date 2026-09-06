@@ -128,3 +128,13 @@ export async function deleteTestUsers(
     users.map((user) => user.id),
   ]);
 }
+
+/**
+ * The Redis key namespace the test suite's queues live under.
+ *
+ * Deliberately not the production default. A queue is identified by prefix and
+ * name together, so without this a worker a developer left running against
+ * their local Redis consumes the jobs these tests enqueue, and the tests hang
+ * waiting for a result another process already took.
+ */
+export const TEST_QUEUE_PREFIX = 'bull-test';
