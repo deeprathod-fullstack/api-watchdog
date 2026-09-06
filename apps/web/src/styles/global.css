@@ -1,0 +1,220 @@
+/*
+ * One stylesheet, plain CSS, custom properties for the handful of values that
+ * repeat. No framework: the UI is small, and a utility framework would be a
+ * build-time dependency and a vocabulary to learn for very little here.
+ */
+
+:root {
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-border: #d8dde4;
+  --color-text: #16202c;
+  --color-muted: #5a6674;
+  --color-accent: #1f5eff;
+  --color-danger: #b3261e;
+
+  --radius: 6px;
+  --space: 16px;
+
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font:
+    15px/1.5 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+a {
+  color: var(--color-accent);
+}
+
+/* Keyboard users must always be able to see where they are. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* --- Shell ---------------------------------------------------------------- */
+
+.shell {
+  min-height: 100vh;
+}
+
+.shell__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space);
+  padding: 12px var(--space);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shell__brand {
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.shell__nav {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.shell__link {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--color-muted);
+}
+
+.shell__link:hover,
+.shell__link.active {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.shell__session {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shell__user {
+  color: var(--color-muted);
+}
+
+.shell__main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: calc(var(--space) * 1.5) var(--space);
+}
+
+/* Below tablet width the header stacks instead of squeezing. */
+@media (max-width: 640px) {
+  .shell__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .shell__nav {
+    flex-wrap: wrap;
+  }
+
+  .shell__session {
+    justify-content: space-between;
+  }
+}
+
+/* --- Page ----------------------------------------------------------------- */
+
+.page__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space);
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space);
+}
+
+.page__title {
+  margin: 0;
+  font-size: 22px;
+}
+
+.page__description {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+}
+
+/* --- Primitives ----------------------------------------------------------- */
+
+.button {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.button--primary {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.button--secondary {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.button--danger {
+  background: var(--color-danger);
+  color: #ffffff;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--space);
+}
+
+.field__label {
+  font-weight: 500;
+}
+
+.field__input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font: inherit;
+  background: var(--color-surface);
+  color: inherit;
+}
+
+.field__error {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+.state {
+  padding: calc(var(--space) * 1.5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.state--error {
+  border-color: var(--color-danger);
+  color: var(--color-text);
+}
+
+.state__title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: var(--color-text);
+}
+
+.state__message {
+  margin: 0 0 12px;
+}

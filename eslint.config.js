@@ -15,13 +15,14 @@ export default tseslint.config(
   ...tseslint.configs.recommendedTypeChecked,
 
   {
-    files: ['**/*.ts'],
+    files: ['**/*.ts', '**/*.tsx'],
     languageOptions: {
       globals: { ...globals.node },
       parserOptions: {
-        // tsconfig.test.json includes both src and test files, so every
-        // TypeScript file in the repo gets type information.
-        project: ['./tsconfig.test.json'],
+        // Between them these two projects include every TypeScript file in the
+        // repo � Node source and tests in the first, the browser app in the
+        // second � so every file gets type information.
+        project: ['./tsconfig.test.json', './apps/web/tsconfig.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -30,6 +31,14 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+    },
+  },
+
+  // The web app runs in a browser, not in Node.
+  {
+    files: ['apps/web/**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: { ...globals.browser },
     },
   },
 
