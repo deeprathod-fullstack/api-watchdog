@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { guardUrl, type UrlRejection } from '../checks/url-guard.js';
+
 /**
  * Header names we refuse to store, whatever the value.
  *
@@ -87,13 +89,39 @@ const headersSchema = z
   });
 
 /**
+ * Why a guarded URL was refused, in words a client can act on.
+ *
+ * The guard's own reasons are internal identifiers; these are the public
+ * translation. Nothing here reveals more than the caller already sent us.
+ */
+const URL_REJECTION_MESSAGES: Record<UrlRejection, string> = {
+  too_long: 'must be at most 2048 characters',
+  unparseable: 'must be a valid URL',
+  no_hostname: 'must be a valid URL',
+  scheme_not_allowed: 'must start with http:// or https://',
+  credentials_in_url: 'must not contain a username or password',
+  port_not_allowed: 'must use port 80 for http:// or port 443 for https://',
+  address_not_allowed: 'must not point at a blocked IP address',
+};
+
+/**
  * The URL to monitor.
  *
- * Scheme and length mirror the table's CHECK constraint. This is *not* SSRF
- * protection: it says nothing about where the host resolves to. Nothing in this
- * slice fetches the URL, and the real control (private-address rejection,
- * resolved at fetch time, because a hostname can be re-pointed after it is
- * stored) belongs to the check pipeline.
+ * Scheme and length mirror the table's CHECK constraint, and the static half of
+ * the SSRF gate is applied here by calling the very same {@link guardUrl} the
+ * check pipeline runs. Not a copy of its rules — the function itself, so there
+ * is exactly one static policy and no way for the two to drift apart.
+ *
+ * This is deliberately only the *static* half. No DNS lookup and no outbound
+ * request happens during CRUD: a hostname's addresses are not a property of the
+ * URL, they are a property of the moment it is fetched, and a name can be
+ * re-pointed at any time after we store it. Address validation therefore stays
+ * where it is authoritative — at check time, on every attempt and every
+ * redirect hop.
+ *
+ * What this does buy is honesty at the boundary: a URL the check pipeline would
+ * reject on every single run is now a 400 at creation, instead of a monitor
+ * that exists only to record permanent failures.
  */
 const urlSchema = z
   .string()
@@ -116,16 +144,16 @@ const urlSchema = z
   .refine((value) => /^https?:\/\//.test(value), {
     message: 'must start with http:// or https://',
   })
-  .refine(
-    (value) => {
-      try {
-        return new URL(value).hostname.length > 0;
-      } catch {
-        return false;
-      }
-    },
-    { message: 'must be a valid URL' },
-  );
+  .superRefine((value, ctx) => {
+    const verdict = guardUrl(value);
+
+    if (!verdict.ok) {
+      ctx.addIssue({
+        code: 'custom',
+        message: URL_REJECTION_MESSAGES[verdict.reason],
+      });
+    }
+  });
 
 const nameSchema = z
   .string()
