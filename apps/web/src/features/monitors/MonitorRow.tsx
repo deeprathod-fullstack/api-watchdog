@@ -221,6 +221,13 @@ export function MonitorRow({
             Edit
           </Link>
 
+          <Link
+            className="button button--secondary"
+            to={paths.monitorHistory(monitor.id)}
+          >
+            History
+          </Link>
+
           <Button
             variant="danger"
             disabled={busy}
