@@ -1,10 +1,21 @@
-import { Page } from '../components/Page.js';
+import { Link } from 'react-router-dom';
 
-/** Placeholder: the sign-in form belongs to the authentication work. */
+import { paths } from '../app/paths.js';
+import { AuthLayout } from '../features/auth/AuthLayout.js';
+import { LoginForm } from '../features/auth/LoginForm.js';
+
 export function LoginPage() {
   return (
-    <Page title="Sign in" description="Sign in to API Watchdog.">
-      <p>The sign-in form is not built yet.</p>
-    </Page>
+    <AuthLayout
+      title="Sign in"
+      description="Monitor your API endpoints and get a record of every check."
+      footer={
+        <>
+          Need an account? <Link to={paths.register}>Create one</Link>
+        </>
+      }
+    >
+      <LoginForm />
+    </AuthLayout>
   );
 }

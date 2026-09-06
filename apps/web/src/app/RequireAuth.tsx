@@ -1,7 +1,8 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 
-import { useAuth } from '../features/auth/useAuth.js';
 import { Loading } from '../components/states.js';
+import { useAuth } from '../features/auth/useAuth.js';
+import { loginPathWithReturnTo } from '../lib/return-to.js';
 import { paths } from './paths.js';
 
 /**
@@ -21,8 +22,14 @@ export function RequireAuth() {
   }
 
   if (status === 'unauthenticated') {
-    // Remember where they were headed so the login screen can return them.
-    return <Navigate to={paths.login} replace state={{ from: location }} />;
+    // Carry the intended destination so signing in resumes it instead of
+    // dumping everyone on the dashboard. It travels in the URL rather than in
+    // router state so that it survives a reload of the login page.
+    const destination = `${location.pathname}${location.search}`;
+
+    return (
+      <Navigate to={loginPathWithReturnTo(paths.login, destination)} replace />
+    );
   }
 
   return <Outlet />;
