@@ -4,6 +4,7 @@ import type pg from 'pg';
 import { type Config } from '@api-watchdog/shared';
 
 import { createAuthRouter } from './auth/routes.js';
+import { createDashboardRouter } from './dashboard/routes.js';
 import type { CheckExecutor } from './checks/service.js';
 import { createMonitorsRouter } from './monitors/routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
@@ -70,6 +71,7 @@ export function createApp({
 
   app.use(healthRouter);
   app.use(createAuthRouter(db, config, authRateLimiter));
+  app.use(createDashboardRouter(db, config));
   app.use(
     createMonitorsRouter({
       db,
