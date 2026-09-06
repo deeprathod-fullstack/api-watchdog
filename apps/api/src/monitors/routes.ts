@@ -4,15 +4,18 @@ import { z } from 'zod';
 
 import { type Config } from '@api-watchdog/shared';
 
+import { listCheckResults } from '../checks/repository.js';
 import {
   type CheckExecutor,
   runManualCheck,
   toCheckResultResponse,
 } from '../checks/service.js';
+import { listIncidents } from '../incidents/repository.js';
 import { NotFoundError, UnauthenticatedError } from '../errors.js';
 import { requireAuth } from '../middleware/require-auth.js';
 import type { CheckScheduler } from '../queue/scheduler.js';
-import { parseBody } from '../validation.js';
+import { parseBody, parseQuery } from '../validation.js';
+import { pageQuerySchema, toIncidentResponse } from './history.js';
 import { findMonitor } from './repository.js';
 import { createMonitorSchema, patchMonitorSchema } from './schemas.js';
 import {
@@ -159,6 +162,52 @@ export function createMonitorsRouter({
       res.status(200).json({ check: toCheckResultResponse(check) });
     },
   );
+
+  /**
+   * This monitor's check history, newest first.
+   *
+   * Ownership is re-established with a scoped read before anything is listed,
+   * so a monitor belonging to someone else is a 404 here exactly as it is on
+   * every other monitor route. Listing first and filtering afterwards would
+   * make the history endpoint the one place where another user's rows were
+   * ever in memory.
+   */
+  router.get('/api/monitors/:id/checks', async (req, res) => {
+    const userId = callerId(req);
+    const id = monitorId(req);
+    const { limit, offset } = parseQuery(pageQuerySchema, req.query);
+
+    const monitor = await findMonitor(db, userId, id);
+    if (!monitor) throw new NotFoundError('Monitor not found');
+
+    const checks = await listCheckResults(db, id, limit, offset);
+
+    // The page parameters are echoed back so a client can tell a short page
+    // from the end of the history without guessing at the default.
+    res.status(200).json({
+      checks: checks.map(toCheckResultResponse),
+      limit,
+      offset,
+    });
+  });
+
+  /** This monitor's incident history, newest first. */
+  router.get('/api/monitors/:id/incidents', async (req, res) => {
+    const userId = callerId(req);
+    const id = monitorId(req);
+    const { limit, offset } = parseQuery(pageQuerySchema, req.query);
+
+    const monitor = await findMonitor(db, userId, id);
+    if (!monitor) throw new NotFoundError('Monitor not found');
+
+    const incidents = await listIncidents(db, userId, id, limit, offset);
+
+    res.status(200).json({
+      incidents: incidents.map(toIncidentResponse),
+      limit,
+      offset,
+    });
+  });
 
   return router;
 }

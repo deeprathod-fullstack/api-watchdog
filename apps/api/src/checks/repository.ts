@@ -115,3 +115,35 @@ export async function insertCheckResult(
     throw error;
   }
 }
+
+/**
+ * One page of a monitor's check history, newest first.
+ *
+ * `id` breaks the tie on `checked_at`, and it is the better tiebreaker for the
+ * same reason it is the better streak boundary: two checks can share a
+ * timestamp, two rows cannot share an id. Without a total order a row could
+ * appear on two pages, or on none.
+ *
+ * Offset paging rather than a cursor. The per-user monitor cap and the bounded
+ * limit keep the offsets a dashboard actually asks for small, and a cursor
+ * scheme is real complexity — opaque tokens, tie-breaking encoded into them,
+ * a migration when the sort changes — bought for a scale V1 does not have.
+ */
+export async function listCheckResults(
+  db: pg.Pool,
+  monitorId: string,
+  limit: number,
+  offset: number,
+): Promise<CheckResult[]> {
+  const result = await db.query<CheckResultRow>(
+    `SELECT id, monitor_id, status, http_status, response_time_ms,
+            error_type, error_message, checked_at
+       FROM check_results
+      WHERE monitor_id = $1
+      ORDER BY checked_at DESC, id DESC
+      LIMIT $2 OFFSET $3`,
+    [monitorId, limit, offset],
+  );
+
+  return result.rows.map(toCheckResult);
+}
