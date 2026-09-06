@@ -10,4 +10,29 @@ import { createTokenStorage } from './token-storage.js';
  */
 export const tokenStorage = createTokenStorage();
 
-export const api = createApiClient({ getToken: () => tokenStorage.get() });
+/**
+ * Where a rejected token is reported.
+ *
+ * The client cannot clear React state and the provider cannot see every
+ * request, so they meet here: the provider subscribes on mount, the client
+ * publishes when an authenticated call comes back 401. A single slot rather
+ * than a list of listeners, because there is exactly one session.
+ */
+let sessionExpiredHandler: (() => void) | null = null;
+
+export function onSessionExpired(handler: () => void): () => void {
+  sessionExpiredHandler = handler;
+
+  return () => {
+    if (sessionExpiredHandler === handler) {
+      sessionExpiredHandler = null;
+    }
+  };
+}
+
+export const api = createApiClient({
+  getToken: () => tokenStorage.get(),
+  onUnauthenticated: () => {
+    sessionExpiredHandler?.();
+  },
+});

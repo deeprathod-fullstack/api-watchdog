@@ -8,6 +8,7 @@ import {
 
 import {
   api as defaultApi,
+  onSessionExpired as defaultOnSessionExpired,
   tokenStorage as defaultStorage,
 } from '../../lib/api.js';
 import type { ApiClient } from '../../lib/api-client.js';
@@ -22,6 +23,11 @@ export interface AuthProviderProps {
   /** Overridable so tests drive the provider without a network or storage. */
   client?: ApiClient;
   storage?: TokenStorage;
+  /**
+   * Subscription to "a request just came back 401". Injected alongside the
+   * client so a test can wire its own pair.
+   */
+  onSessionExpired?: (handler: () => void) => () => void;
 }
 
 /**
@@ -34,6 +40,7 @@ export function AuthProvider({
   children,
   client = defaultApi,
   storage = defaultStorage,
+  onSessionExpired = defaultOnSessionExpired,
 }: AuthProviderProps) {
   // No stored token is already a settled answer, so it is read here rather
   // than in the effect below: starting at 'loading' and immediately setting
@@ -102,6 +109,13 @@ export function AuthProvider({
     setUser(null);
     setStatus('unauthenticated');
   }, [storage]);
+
+  // A token can expire mid-session, and the first thing that notices is
+  // whichever request happens to be in flight. Ending the session centrally
+  // means no screen has to handle a 401 itself, and the route guard performs
+  // the redirect exactly as it does for any other signed-out visitor — no
+  // second redirect path to keep in step, and no loop.
+  useEffect(() => onSessionExpired(logout), [onSessionExpired, logout]);
 
   const value = useMemo(
     () => ({ status, user, login, register, logout }),

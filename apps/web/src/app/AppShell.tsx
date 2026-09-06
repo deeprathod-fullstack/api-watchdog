@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 
 import { Button } from '../components/Button.js';
 import { useAuth } from '../features/auth/useAuth.js';
@@ -10,6 +10,16 @@ import { paths } from './paths.js';
  */
 export function AppShell() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  function handleSignOut() {
+    logout();
+    // Clearing the session would send the guard to
+    // `/login?returnTo=<here>`, which would bounce the user back into the app
+    // on their next sign-in. A deliberate sign-out is not an interrupted
+    // journey, so it goes to a plain login page.
+    void navigate(paths.login, { replace: true });
+  }
 
   return (
     <div className="shell">
@@ -28,8 +38,13 @@ export function AppShell() {
         </nav>
 
         <div className="shell__session">
-          {user ? <span className="shell__user">{user.email}</span> : null}
-          <Button variant="secondary" onClick={logout}>
+          {user ? (
+            <span className="shell__user">
+              <span className="shell__user-name">{user.name}</span>
+              <span className="shell__user-email">{user.email}</span>
+            </span>
+          ) : null}
+          <Button variant="secondary" onClick={handleSignOut}>
             Sign out
           </Button>
         </div>

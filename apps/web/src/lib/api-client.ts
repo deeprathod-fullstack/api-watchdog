@@ -43,12 +43,24 @@ export interface ApiClientOptions {
    */
   getToken?: () => string | null;
   fetchImpl?: typeof fetch;
+  /**
+   * Called when an *authenticated* request comes back 401.
+   *
+   * The token the app is holding has expired or been rejected, and every
+   * screen would otherwise discover that separately. One notification lets the
+   * session layer clear itself once, from anywhere in the app.
+   *
+   * Requests sent without a token never trigger it: a failed sign-in is also a
+   * 401, and treating it as an expiring session would be nonsense.
+   */
+  onUnauthenticated?: () => void;
 }
 
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const baseUrl = options.baseUrl ?? env.apiBaseUrl;
   const getToken = options.getToken ?? (() => null);
   const doFetch = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const onUnauthenticated = options.onUnauthenticated;
 
   async function request<T>(
     method: string,
@@ -93,6 +105,9 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
     const payload = await readJson(response);
 
     if (!response.ok) {
+      if (response.status === 401 && token) {
+        onUnauthenticated?.();
+      }
       throw toApiError(response.status, payload);
     }
 
