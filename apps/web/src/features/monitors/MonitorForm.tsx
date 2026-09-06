@@ -135,8 +135,8 @@ export function MonitorForm({
 
       {/* Three bands, not eight boxes: what to watch, how to watch it, and
           what to send. Each is a decision the user makes separately. */}
-      <fieldset className="form-section">
-        <legend className="form-section__title">Monitor details</legend>
+      <section className="form-section">
+        <h2 className="form-section__title">Monitor details</h2>
         <p className="form-section__description">
           The endpoint to watch and what to call it.
         </p>
@@ -182,10 +182,10 @@ export function MonitorForm({
           readOnly
           hint="V1 checks public GET endpoints only."
         />
-      </fieldset>
+      </section>
 
-      <fieldset className="form-section">
-        <legend className="form-section__title">Check configuration</legend>
+      <section className="form-section">
+        <h2 className="form-section__title">Check configuration</h2>
         <p className="form-section__description">
           What counts as a passing check, and how often it runs.
         </p>
@@ -242,7 +242,7 @@ export function MonitorForm({
             }}
           />
         </div>
-      </fieldset>
+      </section>
 
       <div className="form-section">
         <HeadersEditor

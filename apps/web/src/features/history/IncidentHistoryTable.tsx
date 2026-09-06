@@ -53,15 +53,17 @@ export function IncidentHistoryTable({ incidents }: IncidentHistoryTableProps) {
                     {open ? 'Open' : 'Resolved'}
                   </span>
                 </th>
-                <td>{formatTimestamp(incident.startedAt)}</td>
+                <td className="history__mono">
+                  {formatTimestamp(incident.startedAt)}
+                </td>
                 {/* An open incident has no resolution time yet. */}
-                <td>
+                <td className="history__mono">
                   {incident.resolvedAt === null
                     ? '—'
                     : formatTimestamp(incident.resolvedAt)}
                 </td>
                 {/* The backend's own count; nothing is derived here. */}
-                <td>{incident.failureCount}</td>
+                <td className="history__mono">{incident.failureCount}</td>
               </tr>
             );
           })}

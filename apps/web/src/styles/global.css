@@ -929,8 +929,15 @@ p.state {
 
 /* --- Monitor form --------------------------------------------------------- */
 
+/* Form pages are one column of decisions. Narrowing the whole page keeps the
+   title, the card and the actions on the same measure, instead of leaving a
+   field of empty space beside a card that floats in a 1120px column. */
+.page:has(.monitor-form) {
+  max-width: 720px;
+  margin-inline: auto;
+}
+
 .monitor-form {
-  max-width: 680px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -938,10 +945,19 @@ p.state {
 }
 
 /* Each group of fields is a band with a hairline above it, so the form reads
-   as three decisions rather than eight boxes. */
+   as three decisions rather than eight boxes.
+   The reset matters: a <fieldset> draws its own border and cuts a notch in it
+   for the legend, which is exactly the "unfinished" look this is replacing. */
 .form-section {
+  margin: 0;
   padding: var(--sp-5);
+  border: none;
   border-bottom: 1px solid var(--border);
+  min-inline-size: 0;
+}
+
+.form-section__title {
+  padding: 0;
 }
 
 .form-section__title {
@@ -1221,13 +1237,18 @@ p.state {
   border-left: 3px solid var(--border-strong);
 }
 
-.health__identity,
+/* The incident header puts its badge opposite the name; the health row's
+   identity is a stacked name-over-URL, not two things sharing a line. */
 .incident__header {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--sp-3);
   justify-content: space-between;
+}
+
+.health__identity {
+  min-width: 0;
 }
 
 .health__name,
@@ -1343,13 +1364,11 @@ p.state {
 }
 
 /* Timestamps, statuses and timings are technical values: monospace and tabular
-   figures make a column of them comparable at a glance. */
+   figures make a column of them comparable at a glance.
+   Marked per cell rather than by position — the check and incident tables
+   share this class but not their column order. */
 .history__time,
-.history td:nth-child(3),
-.history td:nth-child(4),
-.activity td:nth-child(3),
-.activity td:nth-child(4),
-.activity td:nth-child(5) {
+.history__mono {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
