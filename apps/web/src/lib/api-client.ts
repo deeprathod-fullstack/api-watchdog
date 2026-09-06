@@ -59,7 +59,11 @@ export interface ApiClientOptions {
 export function createApiClient(options: ApiClientOptions = {}): ApiClient {
   const baseUrl = options.baseUrl ?? env.apiBaseUrl;
   const getToken = options.getToken ?? (() => null);
-  const doFetch = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  // Resolved per call rather than captured at construction: the module-level
+  // client is created at import time, and binding `fetch` then would freeze
+  // whichever implementation happened to exist at that moment.
+  const doFetch: typeof fetch =
+    options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
   const onUnauthenticated = options.onUnauthenticated;
 
   async function request<T>(

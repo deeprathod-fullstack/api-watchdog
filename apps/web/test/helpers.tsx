@@ -4,6 +4,7 @@ import { vi } from 'vitest';
 
 import { AppRoutes } from '../src/app/AppRoutes.js';
 import { AuthProvider } from '../src/features/auth/AuthProvider.js';
+import { tokenStorage } from '../src/lib/api.js';
 import { createApiClient } from '../src/lib/api-client.js';
 import { createMemoryTokenStorage } from '../src/lib/token-storage.js';
 
@@ -13,6 +14,24 @@ export const USER = {
   email: 'deep@example.com',
   createdAt: '2026-01-01T00:00:00.000Z',
 };
+
+/** A monitor as the API returns it. */
+export function monitorFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'Checkout API',
+    url: 'https://api.example.com/health',
+    method: 'GET',
+    expectedStatus: 200,
+    intervalSeconds: 300,
+    timeoutMs: 5000,
+    headers: {},
+    active: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
 
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -86,6 +105,14 @@ export function renderApp({
   if (token) storage.set(token);
 
   const fake = createFakeApi(responses);
+
+  // Feature modules use the application's own `api` singleton rather than an
+  // injected client, so the fake has to stand in for the global `fetch` too.
+  // The singleton reads its token from the real storage, so that is seeded to
+  // match; `setup.ts` clears both after every test.
+  vi.stubGlobal('fetch', fake.fetchImpl);
+  tokenStorage.clear();
+  if (token) tokenStorage.set(token);
 
   let expire: (() => void) | null = null;
   const onSessionExpired = (handler: () => void) => {
