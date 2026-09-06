@@ -1,13 +1,65 @@
-import { Page } from '../components/Page.js';
-import { EmptyState } from '../components/states.js';
+import { Link } from 'react-router-dom';
 
+import { Page } from '../components/Page.js';
+import { EmptyState, ErrorState, Loading } from '../components/states.js';
+import { MonitorRow } from '../features/monitors/MonitorRow.js';
+import { useMonitors } from '../features/monitors/useMonitors.js';
+import { paths } from '../app/paths.js';
+
+/**
+ * The monitor list.
+ *
+ * Four intentional states — loading, error, empty, populated — and no fifth
+ * accidental one: the hook cannot be "ready with an error", so the page cannot
+ * render a half-truth.
+ */
 export function MonitorsPage() {
+  const { status, monitors, error, reload, replace, remove } = useMonitors();
+
   return (
-    <Page title="Monitors" description="Endpoints this account is watching.">
-      <EmptyState
-        title="No monitors listed yet"
-        message="The monitor list and create form arrive with the monitors work."
-      />
+    <Page
+      title="Monitors"
+      description="Endpoints this account is watching."
+      actions={
+        <Link className="button button--primary" to={paths.monitorNew}>
+          New monitor
+        </Link>
+      }
+    >
+      {status === 'loading' ? <Loading label="Loading monitors…" /> : null}
+
+      {status === 'error' ? (
+        <ErrorState
+          title="Could not load your monitors"
+          message={error ?? 'Something went wrong. Please try again.'}
+          onRetry={reload}
+        />
+      ) : null}
+
+      {status === 'ready' && monitors.length === 0 ? (
+        <EmptyState
+          title="No monitors yet"
+          message="Add a public GET endpoint and API Watchdog will check it on a schedule."
+          action={
+            <Link className="button button--primary" to={paths.monitorNew}>
+              Create your first monitor
+            </Link>
+          }
+        />
+      ) : null}
+
+      {status === 'ready' && monitors.length > 0 ? (
+        <ul className="monitors">
+          {monitors.map((monitor) => (
+            <MonitorRow
+              key={monitor.id}
+              monitor={monitor}
+              onReplace={replace}
+              onRemove={remove}
+            />
+          ))}
+        </ul>
+      ) : null}
     </Page>
   );
 }
