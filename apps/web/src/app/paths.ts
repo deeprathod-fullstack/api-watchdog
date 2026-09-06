@@ -5,6 +5,8 @@
 export const paths = {
   dashboard: '/',
   monitors: '/monitors',
+  monitorNew: '/monitors/new',
+  monitorEdit: (id: string) => `/monitors/${id}/edit`,
   monitor: (id: string) => `/monitors/${id}`,
   monitorHistory: (id: string) => `/monitors/${id}/history`,
   login: '/login',

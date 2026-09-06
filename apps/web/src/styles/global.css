@@ -294,3 +294,209 @@ a {
 .state__message {
   margin: 0 0 12px;
 }
+
+/* --- Monitors -------------------------------------------------------------- */
+
+.monitors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space);
+}
+
+.monitor {
+  padding: var(--space);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.monitor__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.monitor__name {
+  margin: 0;
+  font-size: 16px;
+}
+
+.monitor__url {
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  /* User-supplied and often long: wrap it rather than overflow the card. */
+  overflow-wrap: anywhere;
+}
+
+/* State is carried by the word, not the colour — the colour only reinforces. */
+.monitor__state {
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.monitor__state--active {
+  border-color: #1b7f4b;
+  color: #1b7f4b;
+}
+
+.monitor__state--paused {
+  color: var(--color-muted);
+}
+
+.monitor__facts,
+.check__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space);
+  margin: 12px 0 0;
+}
+
+.monitor__fact dt,
+.check__fact dt {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.monitor__fact dd,
+.check__fact dd {
+  margin: 0;
+}
+
+.monitor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: var(--space);
+}
+
+.monitor__confirm {
+  margin-top: var(--space);
+  padding: 12px;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+}
+
+.monitor__confirm-text {
+  margin: 0;
+}
+
+.check {
+  margin-top: var(--space);
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.check--success {
+  border-color: #1b7f4b;
+}
+
+.check--failure {
+  border-color: var(--color-danger);
+}
+
+.check__headline {
+  margin: 0;
+  font-weight: 500;
+}
+
+.check__message {
+  margin: 12px 0 0;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+/* --- Monitor form ---------------------------------------------------------- */
+
+.monitor-form {
+  max-width: 640px;
+}
+
+/* Side by side where there is room, stacked on a narrow screen. */
+.monitor-form__row {
+  display: grid;
+  gap: var(--space);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.monitor-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.form__error {
+  margin: 0 0 var(--space);
+  padding: 10px 12px;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+  color: var(--color-danger);
+}
+
+/* --- Headers editor -------------------------------------------------------- */
+
+.headers {
+  margin: 0 0 var(--space);
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.headers__legend {
+  padding: 0 4px;
+  font-weight: 500;
+}
+
+.headers__hint,
+.headers__empty {
+  margin: 0 0 12px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.headers__list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.headers__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.headers__name {
+  font-weight: 500;
+}
+
+.headers__value {
+  flex: 1;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.headers__add {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: end;
+}
+
+/* A link styled as a button still needs to look like one. */
+a.button {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}

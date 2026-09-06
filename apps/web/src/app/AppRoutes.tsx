@@ -5,6 +5,8 @@ import { LoginPage } from '../routes/LoginPage.js';
 import { MonitorDetailPage } from '../routes/MonitorDetailPage.js';
 import { MonitorHistoryPage } from '../routes/MonitorHistoryPage.js';
 import { MonitorsPage } from '../routes/MonitorsPage.js';
+import { NewMonitorPage } from '../routes/NewMonitorPage.js';
+import { EditMonitorPage } from '../routes/EditMonitorPage.js';
 import { NotFoundPage } from '../routes/NotFoundPage.js';
 import { RegisterPage } from '../routes/RegisterPage.js';
 import { AppShell } from './AppShell.js';
@@ -32,6 +34,10 @@ export function AppRoutes() {
         <Route element={<AppShell />}>
           <Route path={paths.dashboard} element={<DashboardPage />} />
           <Route path={paths.monitors} element={<MonitorsPage />} />
+          {/* Static before dynamic is only for readability — the router ranks
+              `/monitors/new` above `/monitors/:id` regardless of order. */}
+          <Route path={paths.monitorNew} element={<NewMonitorPage />} />
+          <Route path="/monitors/:id/edit" element={<EditMonitorPage />} />
           <Route path="/monitors/:id" element={<MonitorDetailPage />} />
           <Route
             path="/monitors/:id/history"
