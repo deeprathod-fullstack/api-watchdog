@@ -297,11 +297,15 @@ describe('monitor headers', () => {
 describe('GET /api/monitors', () => {
   it('returns only the caller monitors, newest first', async () => {
     const owner = await registerTestUser(app);
+    // A throwaway second account rather than the shared `bob`: a monitor
+    // created on a shared fixture outlives this test, and another test then
+    // depends on the order the two happened to run in.
+    const stranger = await registerTestUser(app);
 
     try {
       const first = await createMonitor(owner, { name: 'First' });
       const second = await createMonitor(owner, { name: 'Second' });
-      await createMonitor(bob, { name: 'Bob only' });
+      await createMonitor(stranger, { name: 'Stranger only' });
 
       const response = await request(app)
         .get('/api/monitors')
@@ -317,7 +321,7 @@ describe('GET /api/monitors', () => {
         first.id,
       ]);
     } finally {
-      await deleteTestUsers(db, [owner]);
+      await deleteTestUsers(db, [owner, stranger]);
     }
   });
 });

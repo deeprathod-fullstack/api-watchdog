@@ -28,6 +28,13 @@ import {
  * one way that could stop being true — create, pause, resume, edit the
  * interval, delete, restart the API, or lose Redis entirely.
  *
+ * These assertions are global on purpose — the property is about *every*
+ * scheduler and *every* active monitor — which only means something when the
+ * suite owns the whole database. It does: `testConfig` points at the suite's
+ * own database and `global-setup.ts` creates and migrates it. The first
+ * describe block below asserts that, so a regression pointing the tests back at
+ * a developer's data fails with a sentence rather than a count mismatch.
+ *
  * No worker runs here. These tests are about the schedule existing and having
  * the right period, not about a check being executed; execution is covered in
  * `worker.test.ts`. That separation is deliberate — a test that waits for a job
@@ -112,6 +119,27 @@ afterAll(async () => {
   await redis.quit();
   await deleteTestUsers(db, [owner]);
   await db.end();
+});
+
+describe('test isolation', () => {
+  it('runs against the suite database, not the development one', () => {
+    // If this ever fails, the assertions below are measuring a developer's
+    // monitors and the numbers they produce mean nothing.
+    expect(new URL(config.DATABASE_URL).pathname).toMatch(/_test$/);
+  });
+
+  it('sees no monitors beyond the ones it created', async () => {
+    await createMonitor();
+
+    const { rows } = await db.query<{ count: string }>(
+      'SELECT count(*) AS count FROM monitors WHERE user_id <> $1',
+      [owner.id],
+    );
+
+    // Reconciliation reads every active monitor in the database, so a row here
+    // that this file did not create would be counted by the tests below.
+    expect(Number(rows[0]?.count)).toBe(0);
+  });
 });
 
 describe('monitor writes keep the schedule in step', () => {
