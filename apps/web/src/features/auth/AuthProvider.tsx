@@ -35,18 +35,18 @@ export function AuthProvider({
   client = defaultApi,
   storage = defaultStorage,
 }: AuthProviderProps) {
-  const [status, setStatus] = useState<AuthStatus>('loading');
+  // No stored token is already a settled answer, so it is read here rather
+  // than in the effect below: starting at 'loading' and immediately setting
+  // 'unauthenticated' would only buy an extra render pass.
+  const [status, setStatus] = useState<AuthStatus>(() =>
+    storage.get() ? 'loading' : 'unauthenticated',
+  );
   const [user, setUser] = useState<User | null>(null);
 
   // Session bootstrap: a stored token is only a claim, so it is exchanged for
   // the real user before any protected screen renders.
   useEffect(() => {
-    const token = storage.get();
-
-    if (!token) {
-      setStatus('unauthenticated');
-      return;
-    }
+    if (!storage.get()) return;
 
     const controller = new AbortController();
 

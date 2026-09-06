@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -35,8 +36,15 @@ export default tseslint.config(
   },
 
   // The web app runs in a browser, not in Node.
+  //
+  // The React Hooks rules go here too. `rules-of-hooks` catches a conditional
+  // or nested hook call, which corrupts hook state in ways that surface as a
+  // confusing runtime error far from the cause; `exhaustive-deps` catches the
+  // stale-closure bugs that come from an incomplete dependency array. Neither
+  // is expressible as a type, so ESLint is the only place to catch them.
   {
     files: ['apps/web/**/*.{ts,tsx}'],
+    ...reactHooks.configs.flat['recommended-latest'],
     languageOptions: {
       globals: { ...globals.browser },
     },
