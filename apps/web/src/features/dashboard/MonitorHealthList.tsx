@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { paths } from '../../app/paths.js';
 import {
   HEALTH_LABELS,
-  formatCheckedAt,
+  formatAbsolute,
   formatHttpStatus,
+  formatRelative,
   formatResponseTime,
   healthOf,
 } from './health.js';
@@ -19,8 +20,11 @@ export interface MonitorHealthListProps {
  *
  * Failing monitors are listed first, then never-checked, then healthy: the
  * things needing attention are the reason someone opened this page. Sorting is
- * the only reordering — no filtering, because a monitor missing from the
- * dashboard would read as deleted.
+ * the only reordering — no filtering and no truncation, because a monitor
+ * missing from the dashboard would read as deleted.
+ *
+ * Read-only. Every action lives one click away on the Monitors page, and the
+ * monitor's name links to its history, which is where triage actually goes.
  */
 const HEALTH_ORDER = { failing: 0, unchecked: 1, healthy: 2 } as const;
 
@@ -30,76 +34,78 @@ export function MonitorHealthList({ monitors }: MonitorHealthListProps) {
   );
 
   return (
-    <ul className="health">
-      {ordered.map((monitor) => {
-        const health = healthOf(monitor);
+    <div className="table-scroll">
+      <table className="monitors">
+        <caption className="visually-hidden">
+          Monitors and the result of their latest check, most urgent first
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Monitor</th>
+            <th scope="col">Status</th>
+            <th scope="col">HTTP</th>
+            <th scope="col">Response</th>
+            <th scope="col">Last check</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordered.map((monitor) => {
+            const health = healthOf(monitor);
 
-        return (
-          <li className={`health__row health__row--${health}`} key={monitor.id}>
-            <div className="health__identity">
-              <p className="health__name">{monitor.name}</p>
-              {/* Not a link: user-supplied and pointing at a third-party host. */}
-              <p className="health__url">{monitor.url}</p>
-            </div>
+            return (
+              <tr className="monitor" key={monitor.id}>
+                <th scope="row" className="monitor__identity">
+                  <Link
+                    className="monitor__name"
+                    to={paths.monitorHistory(monitor.id)}
+                  >
+                    {monitor.name}
+                  </Link>
+                  {/* Not a link: user-supplied, pointing at a third party. */}
+                  <span className="monitor__url">{monitor.url}</span>
+                </th>
 
-            <div className="health__badges">
-              {/* Health and paused are two separate facts, shown separately,
-                  because pausing a monitor does not make its last result
-                  untrue — a monitor can be both paused and failing. */}
-              <span className={`badge badge--${health}`}>
-                {HEALTH_LABELS[health]}
-              </span>
-              {monitor.active ? null : (
-                <span className="badge badge--paused">Paused</span>
-              )}
-              {monitor.incidentOpen ? (
-                <span className="badge badge--incident">Incident open</span>
-              ) : null}
-            </div>
+                <td>
+                  <span className="monitor__status">
+                    <span className={`badge badge--${health}`}>
+                      {HEALTH_LABELS[health]}
+                    </span>
+                    {monitor.active ? null : (
+                      <span className="badge badge--paused">Paused</span>
+                    )}
+                    {monitor.incidentOpen ? (
+                      <span className="badge badge--incident">Incident</span>
+                    ) : null}
+                  </span>
+                </td>
 
-            <dl className="health__facts">
-              <div className="health__fact">
-                <dt>HTTP</dt>
-                <dd>{formatHttpStatus(monitor.latestHttpStatus)}</dd>
-              </div>
-              <div className="health__fact">
-                <dt>Response</dt>
+                <td className="monitor__numeric">
+                  {formatHttpStatus(monitor.latestHttpStatus)}
+                </td>
+
                 {/* Never fabricated: a check that got no response shows a
                     dash, not 0 ms. */}
-                <dd>{formatResponseTime(monitor.latestResponseTimeMs)}</dd>
-              </div>
-              <div className="health__fact">
-                <dt>Expects</dt>
-                <dd>HTTP {monitor.expectedStatus}</dd>
-              </div>
-              <div className="health__fact">
-                <dt>Last check</dt>
-                <dd>{formatCheckedAt(monitor.latestCheckedAt)}</dd>
-              </div>
-            </dl>
+                <td className={`monitor__numeric monitor__response--${health}`}>
+                  {formatResponseTime(monitor.latestResponseTimeMs)}
+                </td>
 
-            {/* An explicit accessible name: several rows each show a link
-                reading "Edit", and on its own that tells a screen-reader user
-                nothing about which monitor it edits. */}
-            <p className="health__links">
-              <Link
-                className="health__link"
-                to={paths.monitorHistory(monitor.id)}
-                aria-label={`History for ${monitor.name}`}
-              >
-                History
-              </Link>
-              <Link
-                className="health__link"
-                to={paths.monitorEdit(monitor.id)}
-                aria-label={`Edit ${monitor.name}`}
-              >
-                Edit
-              </Link>
-            </p>
-          </li>
-        );
-      })}
-    </ul>
+                <td className="monitor__numeric">
+                  {monitor.latestCheckedAt === null ? (
+                    'Never'
+                  ) : (
+                    <time
+                      dateTime={monitor.latestCheckedAt}
+                      title={formatAbsolute(monitor.latestCheckedAt)}
+                    >
+                      {formatRelative(monitor.latestCheckedAt)}
+                    </time>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

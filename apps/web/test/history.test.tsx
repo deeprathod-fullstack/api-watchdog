@@ -189,7 +189,12 @@ describe('history route and monitor header', () => {
     renderHistory();
 
     await screen.findByRole('heading', { level: 1, name: 'Checkout API' });
-    expect(document.title).toBe('Checkout API history · API Watchdog');
+
+    // The title is set in an effect belonging to a later commit than the one
+    // that renders the heading, so waiting on the heading alone is a race.
+    await waitFor(() => {
+      expect(document.title).toBe('Checkout API history · API Watchdog');
+    });
   });
 
   it('offers a way back to the monitor list', async () => {

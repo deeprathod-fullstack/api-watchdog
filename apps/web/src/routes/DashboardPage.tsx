@@ -6,7 +6,6 @@ import { Page } from '../components/Page.js';
 import { EmptyState, ErrorState, Loading } from '../components/states.js';
 import { MonitorHealthList } from '../features/dashboard/MonitorHealthList.js';
 import { OpenIncidents } from '../features/dashboard/OpenIncidents.js';
-import { RecentChecks } from '../features/dashboard/RecentChecks.js';
 import { SummaryCards } from '../features/dashboard/SummaryCards.js';
 import { useDashboard } from '../features/dashboard/useDashboard.js';
 import { useDocumentTitle } from '../app/useDocumentTitle.js';
@@ -95,13 +94,6 @@ export function DashboardPage() {
           Open incidents
         </h2>
         <OpenIncidents monitors={data.monitors} />
-      </section>
-
-      <section className="section" aria-labelledby="activity-heading">
-        <h2 className="section__title" id="activity-heading">
-          Latest checks
-        </h2>
-        <RecentChecks monitors={data.monitors} />
       </section>
 
       <section className="section" aria-labelledby="health-heading">

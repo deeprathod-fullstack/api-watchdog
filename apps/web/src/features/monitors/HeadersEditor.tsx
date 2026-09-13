@@ -73,8 +73,12 @@ export function HeadersEditor({
 
   return (
     <fieldset className="headers">
+      {/* A fieldset keeps the two add-controls grouped for a screen reader,
+          and the heading inside the legend — which the HTML spec allows — puts
+          this section in the page outline beside its two siblings. */}
       <legend className="headers__legend">
-        Request headers <span className="headers__optional">Optional</span>
+        <h2 className="headers__title">Request headers</h2>
+        <span className="headers__optional">Optional</span>
       </legend>
       <p className="headers__hint">
         Sent with every check. Only non-secret headers are supported — never an

@@ -66,6 +66,33 @@ export function formatCheckedAt(iso: string | null, now = Date.now()): string {
   return `${checkedAt.toLocaleString()} (${describeAge(now - checkedAt.getTime())})`;
 }
 
+/**
+ * A check time for a table cell: the relative form only.
+ *
+ * A table column has no room for "9/13/2026, 2:41:13 PM (just now)", and a
+ * column of those is unscannable. The absolute instant is not lost — callers
+ * put it in a `title` and a `dateTime`, where it is one hover or one screen
+ * reader away.
+ */
+export function formatRelative(iso: string | null, now = Date.now()): string {
+  if (iso === null) return 'Never';
+
+  const checkedAt = new Date(iso);
+  if (Number.isNaN(checkedAt.getTime())) return 'Unknown';
+
+  return describeAge(now - checkedAt.getTime());
+}
+
+/** The full instant, for a `title` or a `datetime` attribute. */
+export function formatAbsolute(iso: string | null): string | undefined {
+  if (iso === null) return undefined;
+
+  const checkedAt = new Date(iso);
+  return Number.isNaN(checkedAt.getTime())
+    ? undefined
+    : checkedAt.toLocaleString();
+}
+
 function describeAge(elapsedMs: number): string {
   if (elapsedMs < 0) return 'just now';
 

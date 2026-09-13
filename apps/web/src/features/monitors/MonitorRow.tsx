@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { Button } from '../../components/Button.js';
 import { paths } from '../../app/paths.js';
+import { Button } from '../../components/Button.js';
+import {
+  HEALTH_LABELS,
+  formatAbsolute,
+  formatRelative,
+  formatResponseTime,
+  healthOf,
+} from '../dashboard/health.js';
+import type { DashboardMonitor } from '../dashboard/types.js';
 import { api } from '../../lib/api.js';
 import type { ApiClient } from '../../lib/api-client.js';
 import { CheckResultSummary } from './CheckResultSummary.js';
@@ -11,41 +19,43 @@ import {
   monitorErrorMessage,
 } from './error-messages.js';
 import * as monitorsApi from './monitors-api.js';
-import type { CheckResult, Monitor } from './types.js';
+import type { CheckResult } from './types.js';
 
 /** Which action, if any, is in flight for this monitor. */
 type Pending = 'toggle' | 'check' | 'delete' | null;
 
 export interface MonitorRowProps {
-  monitor: Monitor;
-  onReplace: (monitor: Monitor) => void;
-  onRemove: (id: string) => void;
+  /**
+   * The dashboard's view of a monitor: identity plus its latest check.
+   *
+   * The monitor list reads from `GET /api/dashboard` because that is the one
+   * endpoint carrying per-monitor health, and it carries it for every monitor
+   * in a single query. `GET /api/monitors` has no check data at all, so the
+   * alternative would be one extra request per row.
+   */
+  monitor: DashboardMonitor;
+  /** Re-reads the list after a mutation, so counts and health stay truthful. */
+  onChanged: () => void;
   client?: ApiClient;
 }
 
-function describeInterval(seconds: number): string {
-  if (seconds % 3600 === 0) {
-    const hours = seconds / 3600;
-    return `every ${String(hours)} hour${hours === 1 ? '' : 's'}`;
-  }
-  if (seconds % 60 === 0) {
-    const minutes = seconds / 60;
-    return `every ${String(minutes)} minute${minutes === 1 ? '' : 's'}`;
-  }
-  return `every ${String(seconds)} seconds`;
-}
+/** The number of columns a detail row has to span to sit under the table. */
+const COLUMN_COUNT = 6;
 
 /**
- * One monitor, with its actions.
+ * One monitor, as a table row.
  *
  * Each row owns its own pending and error state. That is what lets a check on
  * one monitor run while another is being paused, and keeps a failure attached
  * to the action that caused it instead of blanking the page.
+ *
+ * A manual check result, a delete confirmation and an error each render as a
+ * second row spanning the table rather than as something squeezed into a cell —
+ * which keeps the table a table, with its columns still aligned.
  */
 export function MonitorRow({
   monitor,
-  onReplace,
-  onRemove,
+  onChanged,
   client = api,
 }: MonitorRowProps) {
   const [pending, setPending] = useState<Pending>(null);
@@ -57,20 +67,16 @@ export function MonitorRow({
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
 
   const busy = pending !== null;
+  const health = healthOf(monitor);
 
   // The confirmation replaces the row's actions, so the button that opened it
-  // no longer exists and focus would otherwise fall back to the document. Move
-  // it onto the confirm button, which is also what makes the new question
-  // reach a screen reader.
+  // no longer exists and focus would otherwise fall back to the document.
   useEffect(() => {
     if (confirmingDelete) confirmButtonRef.current?.focus();
   }, [confirmingDelete]);
 
-  /** Cancelling puts focus back where the user left it. */
   function cancelDelete() {
     setConfirmingDelete(false);
-    // The Delete button is re-rendered by this state change; focus it once it
-    // is back in the DOM.
     requestAnimationFrame(() => deleteButtonRef.current?.focus());
   }
 
@@ -81,14 +87,13 @@ export function MonitorRow({
     setError(null);
 
     try {
-      // The response is the updated row, so the displayed state comes from the
-      // server rather than from an optimistic guess. A failed pause therefore
-      // cannot leave the UI claiming something the backend never did.
-      onReplace(
-        await monitorsApi.patchMonitor(client, monitor.id, {
-          active: !monitor.active,
-        }),
-      );
+      await monitorsApi.patchMonitor(client, monitor.id, {
+        active: !monitor.active,
+      });
+      // Re-read rather than patch the row in place: pausing changes the
+      // summary counts too, and a stale "12 active" beside a paused monitor is
+      // worse than one extra request.
+      onChanged();
     } catch (cause) {
       setError(monitorErrorMessage(cause));
     } finally {
@@ -107,6 +112,7 @@ export function MonitorRow({
       // A resolved promise means the check *ran*. Whether the monitored
       // endpoint was healthy is in the result, and is not this call's failure.
       setCheckResult(await monitorsApi.runManualCheck(client, monitor.id));
+      onChanged();
     } catch (cause) {
       setError(manualCheckErrorMessage(cause));
     } finally {
@@ -122,8 +128,7 @@ export function MonitorRow({
 
     try {
       await monitorsApi.deleteMonitor(client, monitor.id);
-      // Unmounts this row; no state update afterwards.
-      onRemove(monitor.id);
+      onChanged();
     } catch (cause) {
       setError(monitorErrorMessage(cause));
       setPending(null);
@@ -132,139 +137,167 @@ export function MonitorRow({
   }
 
   return (
-    <li className="monitor">
-      <div className="monitor__header">
-        <div className="monitor__identity">
-          <h2 className="monitor__name">{monitor.name}</h2>
-          {/* Not a link: this URL is user-supplied and points at a
-              third-party host, and the app has no reason to navigate to it. */}
-          <p className="monitor__url">{monitor.url}</p>
-        </div>
+    <>
+      <tr className="monitor">
+        <th scope="row" className="monitor__identity">
+          <span className="monitor__name">{monitor.name}</span>
+          {/* Not a link: user-supplied and pointing at a third-party host. */}
+          <span className="monitor__url">{monitor.url}</span>
+        </th>
 
-        {/* The same badge vocabulary the dashboard and history use, so
-            "Paused" looks and reads identically wherever it appears. */}
-        <p className="monitor__state">
-          <span
-            className={`badge badge--${monitor.active ? 'active' : 'paused'}`}
-          >
-            {monitor.active ? 'Active' : 'Paused'}
+        <td>
+          <span className="monitor__status">
+            <span className={`badge badge--${health}`}>
+              {HEALTH_LABELS[health]}
+            </span>
+            {/* Health and paused are two separate facts: pausing stops the
+                schedule, it does not make the last result untrue. */}
+            {monitor.active ? null : (
+              <span className="badge badge--paused">Paused</span>
+            )}
+            {monitor.incidentOpen ? (
+              <span className="badge badge--incident">Incident</span>
+            ) : null}
           </span>
-        </p>
-      </div>
+        </td>
 
-      <dl className="monitor__facts">
-        <div className="monitor__fact">
-          <dt>Method</dt>
-          <dd>{monitor.method}</dd>
-        </div>
-        <div className="monitor__fact">
-          <dt>Expects</dt>
-          <dd>HTTP {monitor.expectedStatus}</dd>
-        </div>
-        <div className="monitor__fact">
-          <dt>Schedule</dt>
-          <dd>{describeInterval(monitor.intervalSeconds)}</dd>
-        </div>
-        <div className="monitor__fact">
-          <dt>Timeout</dt>
-          <dd>{monitor.timeoutMs} ms</dd>
-        </div>
-      </dl>
+        <td className="monitor__numeric">{monitor.expectedStatus}</td>
 
-      {error ? (
-        <p className="form__error" role="alert">
-          {error}
-        </p>
-      ) : null}
+        <td className="monitor__numeric">
+          {monitor.latestCheckedAt === null ? (
+            'Never'
+          ) : (
+            <time
+              dateTime={monitor.latestCheckedAt}
+              title={formatAbsolute(monitor.latestCheckedAt)}
+            >
+              {formatRelative(monitor.latestCheckedAt)}
+            </time>
+          )}
+        </td>
 
-      {checkResult ? <CheckResultSummary result={checkResult} /> : null}
+        {/* A check that never got a response has no timing. It is a dash,
+            never "0 ms". */}
+        <td className={`monitor__numeric monitor__response--${health}`}>
+          {formatResponseTime(monitor.latestResponseTimeMs)}
+        </td>
+
+        <td className="monitor__actions-cell">
+          {confirmingDelete ? null : (
+            <div className="monitor__actions">
+              {/* Deliberately enabled while paused: pausing stops the
+                  schedule, and checking a paused monitor by hand is the main
+                  reason the endpoint exists. */}
+              <Button
+                variant="subtle"
+                disabled={busy}
+                aria-busy={pending === 'check'}
+                aria-label={`Check ${monitor.name} now`}
+                onClick={() => void handleManualCheck()}
+              >
+                {pending === 'check' ? 'Checking…' : 'Check'}
+              </Button>
+
+              <Button
+                variant="subtle"
+                disabled={busy}
+                aria-busy={pending === 'toggle'}
+                aria-label={`${monitor.active ? 'Pause' : 'Resume'} ${monitor.name}`}
+                onClick={() => void handleToggleActive()}
+              >
+                {pending === 'toggle'
+                  ? monitor.active
+                    ? 'Pausing…'
+                    : 'Resuming…'
+                  : monitor.active
+                    ? 'Pause'
+                    : 'Resume'}
+              </Button>
+
+              <Link
+                className="button button--subtle"
+                to={paths.monitorEdit(monitor.id)}
+                aria-label={`Edit ${monitor.name}`}
+              >
+                Edit
+              </Link>
+
+              <Link
+                className="button button--subtle"
+                to={paths.monitorHistory(monitor.id)}
+                aria-label={`History for ${monitor.name}`}
+              >
+                History
+              </Link>
+
+              <Button
+                ref={deleteButtonRef}
+                variant="subtle-danger"
+                disabled={busy}
+                aria-label={`Delete ${monitor.name}`}
+                onClick={() => {
+                  setConfirmingDelete(true);
+                  setError(null);
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          )}
+        </td>
+      </tr>
 
       {confirmingDelete ? (
-        <div
-          className="monitor__confirm"
-          role="group"
-          aria-label="Confirm delete"
-        >
-          <p className="monitor__confirm-text">
-            Delete <strong>{monitor.name}</strong>? Its check history goes with
-            it. This cannot be undone.
-          </p>
-          <div className="monitor__actions">
-            <Button
-              ref={confirmButtonRef}
-              variant="danger"
-              disabled={busy}
-              onClick={() => void handleDelete()}
+        <tr className="monitor__detail">
+          <td colSpan={COLUMN_COUNT}>
+            <div
+              className="monitor__confirm"
+              role="group"
+              aria-label={`Confirm deleting ${monitor.name}`}
             >
-              {pending === 'delete' ? 'Deleting…' : 'Delete monitor'}
-            </Button>
-            <Button variant="secondary" disabled={busy} onClick={cancelDelete}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="monitor__actions">
-          {/* Deliberately enabled while paused: pausing stops the *schedule*,
-              and checking a paused monitor by hand is the main reason the
-              endpoint exists. */}
-          {/* Text-weight actions: a row of solid buttons would compete with
-              the monitor data they belong to. */}
-          <Button
-            variant="subtle"
-            disabled={busy}
-            aria-busy={pending === 'check'}
-            onClick={() => void handleManualCheck()}
-          >
-            {pending === 'check' ? 'Checking…' : 'Check now'}
-          </Button>
+              <p className="monitor__confirm-text">
+                Delete <strong>{monitor.name}</strong>? Its check history goes
+                with it. This cannot be undone.
+              </p>
+              <div className="monitor__confirm-actions">
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={cancelDelete}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  ref={confirmButtonRef}
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => void handleDelete()}
+                >
+                  {pending === 'delete' ? 'Deleting…' : 'Delete monitor'}
+                </Button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      ) : null}
 
-          <Button
-            variant="subtle"
-            disabled={busy}
-            aria-busy={pending === 'toggle'}
-            onClick={() => void handleToggleActive()}
-          >
-            {pending === 'toggle'
-              ? monitor.active
-                ? 'Pausing…'
-                : 'Resuming…'
-              : monitor.active
-                ? 'Pause'
-                : 'Resume'}
-          </Button>
+      {error ? (
+        <tr className="monitor__detail">
+          <td colSpan={COLUMN_COUNT}>
+            <p className="form__error" role="alert">
+              {error}
+            </p>
+          </td>
+        </tr>
+      ) : null}
 
-          <Link
-            className="button button--subtle"
-            to={paths.monitorEdit(monitor.id)}
-          >
-            Edit
-          </Link>
-
-          <Link
-            className="button button--subtle"
-            to={paths.monitorHistory(monitor.id)}
-          >
-            History
-          </Link>
-
-          {/* Pushes Delete to the far end, so it is not the neighbour of the
-              control someone is actually aiming for. */}
-          <span className="monitor__actions-spacer" />
-
-          <Button
-            ref={deleteButtonRef}
-            variant="subtle-danger"
-            disabled={busy}
-            onClick={() => {
-              setConfirmingDelete(true);
-              setError(null);
-            }}
-          >
-            Delete
-          </Button>
-        </div>
-      )}
-    </li>
+      {checkResult ? (
+        <tr className="monitor__detail">
+          <td colSpan={COLUMN_COUNT}>
+            <CheckResultSummary result={checkResult} />
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }
