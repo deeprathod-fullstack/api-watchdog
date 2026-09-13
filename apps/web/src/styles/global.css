@@ -12,58 +12,63 @@
 
 :root {
   /* --- Surfaces ---------------------------------------------------------- */
-  --bg: #fafbfc;
-  --surface: #ffffff;
-  /* For anything sitting on a surface: table heads, footers, nested panels. */
-  --surface-sunken: #f7f8fa;
-  --surface-hover: #f4f6f8;
+  /* Four tiers, close together. On a dark UI the eye reads small tonal steps
+     easily, so depth comes from tone and a hairline border rather than from
+     shadows — which are nearly invisible on a dark canvas anyway. */
+  --bg: #0b0f17;
+  --surface: #111827;
+  --surface-sunken: #0f172a;
+  --surface-hover: #161f30;
 
   /* --- Borders ------------------------------------------------------------ */
-  --border: #e4e7ec;
-  --border-strong: #d0d5dd;
+  --border: #1f2937;
+  --border-strong: #374151;
 
   /* --- Text --------------------------------------------------------------- */
-  --text: #101828;
-  --text-secondary: #475467;
-  --text-muted: #667085;
+  --text: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
 
   /* --- Accent and semantics ----------------------------------------------- */
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-subtle: #eff4ff;
+  /* Semantic colours are stated three ways — a text colour, a low-alpha fill
+     and a border — so a status can be tinted without shouting. Every one of
+     them is paired with a word in the markup; none carries meaning alone. */
+  --accent: #38bdf8;
+  --accent-hover: #7dd3fc;
+  --accent-contrast: #062c3d;
+  --accent-subtle: rgb(56 189 248 / 12%);
 
-  --success: #067647;
-  --success-subtle: #ecfdf3;
-  --success-border: #abefc6;
+  --success: #34d399;
+  --success-subtle: rgb(6 78 59 / 40%);
+  --success-border: rgb(5 150 105 / 45%);
 
-  --warning: #b54708;
-  --warning-subtle: #fffaeb;
-  --warning-border: #fedf89;
+  --warning: #fbbf24;
+  --warning-subtle: rgb(120 53 15 / 40%);
+  --warning-border: rgb(217 119 6 / 45%);
 
-  --danger: #b42318;
-  --danger-hover: #912018;
-  --danger-subtle: #fef3f2;
-  --danger-border: #fecdca;
+  --danger: #fb7185;
+  --danger-hover: #fda4af;
+  --danger-subtle: rgb(136 19 55 / 35%);
+  --danger-border: rgb(225 29 72 / 45%);
 
-  --info: #175cd3;
-  --info-subtle: #eff8ff;
-  --info-border: #b2ddff;
+  --info: #7dd3fc;
+  --info-subtle: rgb(56 189 248 / 12%);
+  --info-border: rgb(56 189 248 / 35%);
 
   /* --- Focus -------------------------------------------------------------- */
-  --focus-ring: 0 0 0 3px rgb(37 99 235 / 18%);
-  --focus-ring-danger: 0 0 0 3px rgb(180 35 24 / 18%);
+  --focus-ring: 0 0 0 3px rgb(56 189 248 / 25%);
+  --focus-ring-danger: 0 0 0 3px rgb(251 113 133 / 25%);
 
   /* --- Radii -------------------------------------------------------------- */
+  /* Tight. Soft geometry reads casual; this is an operations tool. */
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 10px;
+  --radius-lg: 8px;
 
   /* --- Elevation ---------------------------------------------------------- */
-  /* Deliberately shallow. Depth here means "this is a surface", not "this is
-     floating"; a monitoring tool should look flat and factual. */
-  --shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
-  --shadow-md:
-    0 4px 8px -2px rgb(16 24 40 / 8%), 0 2px 4px -2px rgb(16 24 40 / 6%);
+  /* Only overlays float. Cards are surfaces, and say so with tone + border. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 25%);
+  --shadow-md: 0 12px 32px -4px rgb(0 0 0 / 65%);
 
   /* --- Spacing ------------------------------------------------------------ */
   --sp-1: 4px;
@@ -94,8 +99,10 @@
   /* --- Layout ------------------------------------------------------------- */
   --container: 1120px;
   --control-height: 34px;
+  /* Data rows are shorter than controls: density is the point of a table. */
+  --row-height: 40px;
 
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 *,
@@ -243,7 +250,7 @@ a:hover {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--accent-contrast);
 }
 
 .shell__nav {
@@ -409,7 +416,7 @@ a:hover {
 
 .button--primary {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-contrast);
   box-shadow: var(--shadow-sm);
 }
 
@@ -429,13 +436,14 @@ a:hover {
 }
 
 .button--danger {
-  background: var(--danger);
-  color: #ffffff;
-  box-shadow: var(--shadow-sm);
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+  color: var(--danger);
 }
 
 .button--danger:hover:not(:disabled) {
-  background: var(--danger-hover);
+  border-color: var(--danger);
+  color: var(--danger-hover);
 }
 
 .button--danger:focus-visible {
