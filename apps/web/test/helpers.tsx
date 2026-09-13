@@ -65,6 +65,48 @@ export function dashboardResponse(
   });
 }
 
+/**
+ * One monitor as `GET /api/dashboard` returns it: identity plus its latest
+ * check. This is what the dashboard *and* the monitor list both render, since
+ * it is the only shape carrying per-monitor health.
+ */
+export function dashboardMonitorFixture(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'Checkout API',
+    url: 'https://api.example.com/health',
+    active: true,
+    expectedStatus: 200,
+    intervalSeconds: 300,
+    timeoutMs: 5000,
+    latestStatus: 'success',
+    latestHttpStatus: 200,
+    latestResponseTimeMs: 143,
+    latestCheckedAt: '2026-01-01T00:00:00.000Z',
+    incidentOpen: false,
+    ...overrides,
+  };
+}
+
+/** A dashboard page whose summary is derived from the monitors it carries. */
+export function dashboardWith(
+  monitors: Record<string, unknown>[] = [],
+): Response {
+  return dashboardResponse(
+    {
+      total: monitors.length,
+      active: monitors.filter((m) => m.active !== false).length,
+      healthy: monitors.filter((m) => m.latestStatus === 'success').length,
+      failing: monitors.filter((m) => m.latestStatus === 'failure').length,
+      unknown: monitors.filter((m) => m.latestStatus === null).length,
+      openIncidents: monitors.filter((m) => m.incidentOpen === true).length,
+    },
+    monitors,
+  );
+}
+
 export function errorResponse(status: number, code: string, message: string) {
   return jsonResponse(status, { error: { code, message } });
 }

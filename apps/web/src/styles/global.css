@@ -783,99 +783,113 @@ p.state {
 
 /* --- Monitor list --------------------------------------------------------- */
 
-/* Rows in one surface with hairline separators, rather than a stack of cards:
-   twenty monitors should read as one table, not twenty objects. */
+/* A table, not a stack of cards: twenty monitors should read as one list with
+   comparable columns, not as twenty separate objects. */
 .monitors {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
 }
 
-.monitor {
-  padding: var(--sp-4) var(--sp-5);
+.monitors thead th {
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--surface-sunken);
   border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
-.monitor:last-child {
-  border-bottom: none;
+.monitor > th,
+.monitor > td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
 }
 
-.monitor:hover {
+.monitor:hover > th,
+.monitor:hover > td {
   background: var(--surface-hover);
 }
 
-.monitor__header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-3);
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
+/* The identity cell is the row's heading, so it is a <th scope="row">; the
+   name and the URL stack inside it. */
 .monitor__identity {
-  min-width: 0;
+  font-weight: 400;
+  min-width: 220px;
 }
 
 .monitor__name {
-  margin: 0;
+  display: block;
   font-size: var(--fs-base);
   font-weight: 600;
+  color: var(--text);
 }
 
 .monitor__url {
-  margin: var(--sp-1) 0 0;
+  display: block;
+  margin-top: 2px;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 
-.monitor__state {
-  margin: 0;
-}
-
-.monitor__facts,
-.check__facts {
+.monitor__status {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-5);
-  margin: var(--sp-3) 0 0;
+  gap: var(--sp-1);
 }
 
-.monitor__fact dt,
-.check__fact dt {
-  color: var(--text-muted);
+/* Technical values line up as a column when they are monospaced and tabular. */
+.monitor__numeric {
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
-.monitor__fact dd,
-.check__fact dd {
-  margin: 0;
-  font-size: var(--fs-sm);
-  font-variant-numeric: tabular-nums;
+/* A healthy response time is the one number worth reading at a glance. */
+.monitor__response--healthy {
+  color: var(--success);
+}
+
+.monitor__response--failing {
+  color: var(--danger);
+}
+
+.monitor__actions-cell {
+  width: 1%;
+  white-space: nowrap;
 }
 
 .monitor__actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--sp-1);
-  margin-top: var(--sp-3);
 }
 
-/* The destructive action is pushed away from the routine ones, so it is not
-   the neighbour of the button someone is aiming for. */
-.monitor__actions-spacer {
-  flex: 1;
+/* A confirmation, an error or a check result spans the table rather than being
+   squeezed into a cell, which keeps the columns above it aligned. */
+.monitor__detail > td {
+  padding: 0 var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-hover);
 }
 
 .monitor__confirm {
-  margin-top: var(--sp-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
   padding: var(--sp-3);
   background: var(--danger-subtle);
   border: 1px solid var(--danger-border);
@@ -886,6 +900,11 @@ p.state {
   margin: 0;
   font-size: var(--fs-sm);
   color: var(--text);
+}
+
+.monitor__confirm-actions {
+  display: flex;
+  gap: var(--sp-2);
 }
 
 /* --- Manual check result -------------------------------------------------- */
@@ -1019,9 +1038,9 @@ p.state {
   font-weight: 700;
 }
 
-/* The monitor row shows the same error inline, where there is no form band. */
-.monitor .form__error {
-  margin-top: var(--sp-3);
+/* The monitor table shows the same error in a row of its own, where there is
+   no form band to sit against. */
+.monitor__detail .form__error {
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--danger-border);
   border-radius: var(--radius-md);

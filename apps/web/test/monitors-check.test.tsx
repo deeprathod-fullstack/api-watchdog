@@ -1,12 +1,14 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import {
   USER,
+  dashboardMonitorFixture as monitor,
+  dashboardWith,
   errorResponse,
   jsonResponse,
-  monitorFixture as monitor,
   renderApp,
+  type FakeResponse,
 } from './helpers.js';
 
 function checkResult(overrides: Record<string, unknown> = {}) {
@@ -23,8 +25,13 @@ function checkResult(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * The list reads `GET /api/dashboard`, and re-reads it after a successful
+ * check so the Last check and Response columns are not left stale — hence the
+ * second dashboard page queued behind whatever the test supplies.
+ */
 function renderMonitors(
-  responses: (Response | Error)[],
+  responses: FakeResponse[],
   monitorOverrides: Record<string, unknown> = {},
 ) {
   return renderApp({
@@ -32,8 +39,9 @@ function renderMonitors(
     token: 'token-abc',
     responses: [
       jsonResponse(200, { user: USER }),
-      jsonResponse(200, { monitors: [monitor(monitorOverrides)] }),
+      dashboardWith([monitor(monitorOverrides)]),
       ...responses,
+      dashboardWith([monitor(monitorOverrides)]),
     ],
   });
 }
@@ -44,16 +52,20 @@ describe('manual check', () => {
       jsonResponse(200, { check: checkResult() }),
     ]);
 
-    await screen.findByRole('heading', { level: 2, name: 'Checkout API' });
-    fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+    await screen.findByText('Checkout API');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Check Checkout API now' }),
+    );
 
     expect(await screen.findByText('Check passed')).toBeTruthy();
-    expect(screen.getByText('200')).toBeTruthy();
-    expect(screen.getByText('143 ms')).toBeTruthy();
+    // Scoped to the result panel: the table's Expected column also reads 200.
+    const summary = screen.getByRole('status');
+    expect(within(summary).getByText('200')).toBeTruthy();
+    expect(within(summary).getByText('143 ms')).toBeTruthy();
 
-    const request = getRequests().at(-1);
-    expect(request?.method).toBe('POST');
-    expect(request?.url).toBe(
+    const check = getRequests().find((r) => r.url.endsWith('/check'));
+    expect(check?.method).toBe('POST');
+    expect(check?.url).toBe(
       '/api/monitors/11111111-1111-4111-8111-111111111111/check',
     );
   });
@@ -75,8 +87,10 @@ describe('manual check', () => {
       }),
     ]);
 
-    await screen.findByRole('heading', { level: 2, name: 'Checkout API' });
-    fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+    await screen.findByText('Checkout API');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Check Checkout API now' }),
+    );
 
     const summary = await screen.findByRole('status');
     expect(summary.textContent).toContain('Check failed');
@@ -101,8 +115,10 @@ describe('manual check', () => {
       }),
     ]);
 
-    await screen.findByRole('heading', { level: 2, name: 'Checkout API' });
-    fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+    await screen.findByText('Checkout API');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Check Checkout API now' }),
+    );
 
     const summary = await screen.findByRole('status');
     expect(summary.textContent).toContain('Timed out');
@@ -116,20 +132,24 @@ describe('manual check', () => {
       { active: false },
     );
 
-    await screen.findByRole('heading', { level: 2, name: 'Checkout API' });
+    await screen.findByText('Checkout API');
     expect(screen.getByText('Paused')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Check Checkout API now' }),
+    );
 
     expect(await screen.findByText('Check passed')).toBeTruthy();
-    expect(getRequests().at(-1)?.url).toContain('/check');
+    expect(getRequests().some((r) => r.url.endsWith('/check'))).toBe(true);
   });
 
   it('reports a request failure as an error, not as a check result', async () => {
     renderMonitors([errorResponse(429, 'rate_limited', 'Too many checks')]);
 
-    await screen.findByRole('heading', { level: 2, name: 'Checkout API' });
-    fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+    await screen.findByText('Checkout API');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Check Checkout API now' }),
+    );
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('Too many manual checks');
@@ -139,8 +159,10 @@ describe('manual check', () => {
   it('reports an unreachable API without inventing a check result', async () => {
     renderMonitors([new TypeError('Failed to fetch')]);
 
-    await screen.findByRole('heading', { level: 2, name: 'Checkout API' });
-    fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
+    await screen.findByText('Checkout API');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Check Checkout API now' }),
+    );
 
     expect((await screen.findByRole('alert')).textContent).toContain(
       'Unable to reach API Watchdog',
@@ -149,21 +171,27 @@ describe('manual check', () => {
   });
 
   it('sends one request however fast the button is clicked', async () => {
-    const { fetchImpl } = renderMonitors([
+    const { getRequests } = renderMonitors([
       jsonResponse(200, { check: checkResult() }),
     ]);
 
-    await screen.findByRole('heading', { level: 2, name: 'Checkout API' });
+    await screen.findByText('Checkout API');
 
-    const button = screen.getByRole('button', { name: 'Check now' });
+    const button = screen.getByRole('button', {
+      name: 'Check Checkout API now',
+    });
     fireEvent.click(button);
     fireEvent.click(button);
     fireEvent.click(button);
 
     await screen.findByText('Check passed');
     await waitFor(() => {
-      // Bootstrap, list, one check.
-      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      // Exactly one check, however many times the control was clicked. The
+      // manual-check limiter is the strictest on the API; a double-click must
+      // not spend two of it.
+      expect(
+        getRequests().filter((r) => r.url.endsWith('/check')),
+      ).toHaveLength(1);
     });
   });
 });
