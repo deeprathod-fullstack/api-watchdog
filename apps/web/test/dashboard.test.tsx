@@ -468,7 +468,12 @@ describe('dashboard navigation', () => {
     renderDashboard([dashboard([dashMonitor()])]);
 
     await screen.findByRole('heading', { level: 2, name: 'Monitor health' });
-    expect(document.title).toBe('Dashboard · API Watchdog');
+
+    // Same race as the history page: the title lands in an effect, not in the
+    // render that produced the heading.
+    await waitFor(() => {
+      expect(document.title).toBe('Dashboard · API Watchdog');
+    });
   });
 
   it('links to the monitor list and the create form', async () => {
