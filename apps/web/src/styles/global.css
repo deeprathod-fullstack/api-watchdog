@@ -940,6 +940,28 @@ p.state {
   color: var(--danger);
 }
 
+.monitor__facts,
+.check__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  margin: var(--sp-3) 0 0;
+}
+
+.monitor__fact dt,
+.check__fact dt {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.monitor__fact dd,
+.check__fact dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
 .check__facts {
   gap: var(--sp-4);
   margin-top: var(--sp-2);
