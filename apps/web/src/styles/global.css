@@ -1076,7 +1076,14 @@ p.state {
 }
 
 .headers__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
   padding: 0;
+}
+
+.headers__title {
+  margin: 0;
   font-size: var(--fs-base);
   font-weight: 600;
 }
@@ -1355,9 +1362,19 @@ p.state {
 /* --- Tables --------------------------------------------------------------- */
 
 /* The wrapper scrolls, not the table: `display: block` on a <table> stops its
-   columns aligning, and letting the table overflow pushes the page sideways. */
+   columns aligning, and letting the table overflow pushes the page sideways.
+   `position: relative` is load-bearing — a visually-hidden label inside a wide
+   table is absolutely positioned, and without a positioned ancestor its
+   containing block is the viewport, so it escapes the scroll container and
+   drags the whole document sideways. */
 .table-scroll {
+  position: relative;
   overflow-x: auto;
+  /* A thin, always-present scrollbar rather than an overlay one: on a narrow
+     screen the columns to the right are the only way to reach a monitor's
+     actions, and a scroll affordance nobody can see is not an affordance. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
