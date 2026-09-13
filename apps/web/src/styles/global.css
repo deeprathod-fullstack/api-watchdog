@@ -154,8 +154,7 @@ a:hover {
   .headers__item,
   .health__row,
   .incident,
-  .history tbody tr,
-  .activity tbody tr {
+  .history tbody tr {
     transition:
       background-color 120ms ease,
       border-color 120ms ease,
@@ -1343,25 +1342,21 @@ p.state {
   box-shadow: var(--shadow-sm);
 }
 
-.history,
-.activity {
+.history {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--fs-sm);
 }
 
 .history th,
-.history td,
-.activity th,
-.activity td {
+.history td {
   padding: var(--sp-3) var(--sp-4);
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--border);
 }
 
-.history thead th,
-.activity thead th {
+.history thead th {
   padding-top: var(--sp-2);
   padding-bottom: var(--sp-2);
   background: var(--surface-sunken);
@@ -1374,19 +1369,15 @@ p.state {
 }
 
 .history tbody tr:last-child th,
-.history tbody tr:last-child td,
-.activity tbody tr:last-child th,
-.activity tbody tr:last-child td {
+.history tbody tr:last-child td {
   border-bottom: none;
 }
 
-.history tbody tr:hover,
-.activity tbody tr:hover {
+.history tbody tr:hover {
   background: var(--surface-hover);
 }
 
-.history tbody th[scope='row'],
-.activity tbody th[scope='row'] {
+.history tbody th[scope='row'] {
   font-weight: 500;
 }
 

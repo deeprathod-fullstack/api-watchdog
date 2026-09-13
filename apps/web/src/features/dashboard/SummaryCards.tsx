@@ -1,4 +1,3 @@
-import { pausedCount } from './health.js';
 import type { DashboardSummary } from './types.js';
 
 export interface SummaryCardsProps {
@@ -8,10 +7,14 @@ export interface SummaryCardsProps {
 /**
  * The counts across the top.
  *
- * Every number comes from the backend's own summary; the only arithmetic is
- * `paused = total - active`, which is the one thing `active` can mean. Each
- * card carries a short explanation, because "unknown" and "failing" are not
- * self-evident and a dashboard nobody can read is a dashboard nobody trusts.
+ * Five, and every one comes straight from the backend's summary — no
+ * arithmetic, no derived metric, nothing the API did not report. Each carries a
+ * short explanation, because "failing" and "active" are not self-evident and a
+ * dashboard nobody can read is a dashboard nobody trusts.
+ *
+ * Monitors that have never been checked are deliberately not a sixth card.
+ * They are visible where they matter — as "No check yet" in the table below —
+ * and a card that reads 0 on almost every account is chrome, not information.
  */
 export function SummaryCards({ summary }: SummaryCardsProps) {
   const cards = [
@@ -20,6 +23,13 @@ export function SummaryCards({ summary }: SummaryCardsProps) {
       label: 'Monitors',
       value: summary.total,
       note: 'Endpoints on this account',
+      tone: 'neutral',
+    },
+    {
+      key: 'active',
+      label: 'Active',
+      value: summary.active,
+      note: 'Checked on a schedule',
       tone: 'neutral',
     },
     {
@@ -34,21 +44,9 @@ export function SummaryCards({ summary }: SummaryCardsProps) {
       label: 'Failing',
       value: summary.failing,
       note: 'Last check failed',
-      tone: 'bad',
-    },
-    {
-      key: 'unknown',
-      label: 'No check yet',
-      value: summary.unknown,
-      note: 'Never been checked',
-      tone: 'neutral',
-    },
-    {
-      key: 'paused',
-      label: 'Paused',
-      value: pausedCount(summary),
-      note: 'Not being checked on a schedule',
-      tone: 'neutral',
+      // Only tinted when there is something to look at: a calm dashboard is
+      // one where the red means something.
+      tone: summary.failing > 0 ? 'bad' : 'neutral',
     },
     {
       key: 'incidents',

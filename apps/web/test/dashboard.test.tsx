@@ -76,17 +76,11 @@ function healthSection(): HTMLElement {
   return heading.closest('section') as HTMLElement;
 }
 
-/**
- * One monitor's row within the health list.
- *
- * Matched on the name element specifically: each row's "Edit" link carries the
- * monitor's name in visually-hidden text so its accessible name says which
- * monitor it edits, and a bare text query would match both.
- */
+/** One monitor's row within the health table. */
 function healthRow(name: string): HTMLElement {
   return within(healthSection())
-    .getByText(name, { selector: '.health__name' })
-    .closest('li') as HTMLElement;
+    .getByText(name, { selector: '.monitor__name' })
+    .closest('tr') as HTMLElement;
 }
 
 describe('dashboard loading and errors', () => {
@@ -175,13 +169,19 @@ describe('dashboard overview', () => {
 
     await screen.findByRole('heading', { level: 2, name: 'Monitor health' });
 
+    // Five cards, every number straight from the backend's summary.
     expect(cardValue('Monitors')).toBe('4');
+    expect(cardValue('Active')).toBe('3');
     expect(cardValue('Healthy')).toBe('2');
     expect(cardValue('Failing')).toBe('1');
-    expect(cardValue('No check yet')).toBe('1');
-    // total - active, the only thing `active` can mean.
-    expect(cardValue('Paused')).toBe('1');
     expect(cardValue('Open incidents')).toBe('1');
+
+    // A never-checked monitor is not a sixth card; it is visible where it
+    // matters, in the table.
+    expect(
+      screen.queryByText('No check yet', { selector: '.card__label' }),
+    ).toBeNull();
+    expect(within(healthSection()).getByText('No check yet')).toBeTruthy();
   });
 });
 
@@ -262,7 +262,7 @@ describe('monitor health presentation', () => {
     const row = healthRow('Brand new');
     expect(within(row).getByText('No check yet')).toBeTruthy();
     expect(within(row).queryByText('Healthy')).toBeNull();
-    expect(within(row).getByText('Never checked')).toBeTruthy();
+    expect(within(row).getByText('Never')).toBeTruthy();
   });
 
   it('does not invent a response time when none was recorded', async () => {
@@ -343,49 +343,33 @@ describe('open incidents', () => {
   });
 });
 
-describe('latest checks', () => {
-  it('lists the most recently checked monitors first', async () => {
+describe('monitor health ordering', () => {
+  it('puts the monitors needing attention first', async () => {
     renderDashboard([
       dashboard([
-        dashMonitor({
-          id: 'a',
-          name: 'Older',
-          latestCheckedAt: '2026-01-01T00:00:00.000Z',
-        }),
-        dashMonitor({
-          id: 'b',
-          name: 'Newer',
-          latestCheckedAt: '2026-01-02T00:00:00.000Z',
-        }),
+        dashMonitor({ id: 'a', name: 'Fine one', latestStatus: 'success' }),
+        dashMonitor({ id: 'b', name: 'Broken one', latestStatus: 'failure' }),
       ]),
     ]);
 
-    const heading = await screen.findByRole('heading', {
-      level: 2,
-      name: 'Latest checks',
-    });
-    const rows = within(heading.closest('section') as HTMLElement).getAllByRole(
-      'row',
-    );
+    await screen.findByRole('heading', { level: 2, name: 'Monitor health' });
+    const rows = within(healthSection()).getAllByRole('row');
 
-    // Row 0 is the header.
-    expect(rows[1]?.textContent).toContain('Newer');
-    expect(rows[2]?.textContent).toContain('Older');
+    // Row 0 is the header. Failing sorts above healthy: the thing needing
+    // attention is why someone opened this page.
+    expect(rows[1]?.textContent).toContain('Broken one');
+    expect(rows[2]?.textContent).toContain('Fine one');
   });
 
-  it('says so when no check has run yet', async () => {
-    renderDashboard([
-      dashboard([
-        dashMonitor({
-          latestStatus: null,
-          latestHttpStatus: null,
-          latestResponseTimeMs: null,
-          latestCheckedAt: null,
-        }),
-      ]),
-    ]);
+  it('shows the latest check per monitor once, not as a second table', async () => {
+    renderDashboard([dashboard([dashMonitor()])]);
 
-    expect(await screen.findByText(/no checks yet/i)).toBeTruthy();
+    await screen.findByRole('heading', { level: 2, name: 'Monitor health' });
+
+    // The dashboard used to carry a "Latest checks" table alongside this one,
+    // rendering the same latest-check-per-monitor rows in a different order.
+    expect(screen.queryByRole('heading', { name: 'Latest checks' })).toBeNull();
+    expect(screen.getAllByRole('table')).toHaveLength(1);
   });
 });
 
@@ -453,7 +437,7 @@ describe('refresh', () => {
     fireEvent.click(button);
 
     await within(healthSection()).findByText('Refreshed', {
-      selector: '.health__name',
+      selector: '.monitor__name',
     });
     await waitFor(() => {
       expect(
@@ -500,16 +484,16 @@ describe('dashboard navigation', () => {
     ).toBe('/monitors/new');
   });
 
-  it('links each monitor to its edit page, named for the monitor', async () => {
+  it('links each monitor to its history', async () => {
     renderDashboard([dashboard([dashMonitor()])]);
 
     await screen.findByRole('heading', { level: 2, name: 'Monitor health' });
 
     const link = within(healthSection()).getByRole('link', {
-      name: 'Edit Checkout API',
+      name: 'Checkout API',
     });
     expect(link.getAttribute('href')).toBe(
-      '/monitors/11111111-1111-4111-8111-111111111111/edit',
+      '/monitors/11111111-1111-4111-8111-111111111111/history',
     );
   });
 
