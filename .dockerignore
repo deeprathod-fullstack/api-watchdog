@@ -1,0 +1,61 @@
+# What `docker build` must NOT upload into the build context.
+#
+# Two reasons things appear here.
+#
+# Correctness: node_modules is built for the host platform. `bcrypt` is a
+# native addon, so a Windows or macOS copy cannot run on Linux — and if it were
+# copied in, `npm ci` would not replace it and the image would fail at runtime
+# with a confusing error. `dist` is excluded for the same reason in spirit: the
+# image builds its own, and a stale host build silently shadowing it is exactly
+# the bug that is hardest to spot.
+#
+# Security: this repository is public and the image may be pushed to a
+# registry. Anything copied in is readable by anyone who pulls it, so real
+# secrets must never be part of a layer. Configuration reaches a container
+# through environment variables, never through a baked-in file.
+
+# Dependencies and build output — the image produces its own.
+#
+# Every pattern is doubled with a `**/` form on purpose: Docker matches these
+# against the whole path, so a bare `*.tsbuildinfo` catches only the repository
+# root and misses apps/api/tsconfig.tsbuildinfo.
+#
+# .tsbuildinfo matters more than it looks. It is how `tsc -b` decides what is
+# already compiled. Copying a host one in while excluding dist/ tells the
+# compiler "this is built" when nothing is — producing an image with no
+# JavaScript in it that fails only when a container starts.
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+**/*.tsbuildinfo
+coverage
+**/coverage
+
+# Secrets. The template is kept: it documents the variables and holds no real
+# values. Every other .env file is excluded, including apps/web/.env.local.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Version control and local tooling state.
+.git
+.gitignore
+.gitattributes
+.claude
+
+# Not needed to build or run the application.
+docs
+stitch-design
+README.md
+CLAUDE.md
+*.log
+**/*.log
+Dockerfile
+**/Dockerfile
+.dockerignore
+docker-compose.yml
