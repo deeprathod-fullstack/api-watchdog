@@ -1,11 +1,25 @@
-# Local development infrastructure.
-#
-# Only stateful backing services live here for now; backend, worker and
-# frontend containers are added in a later slice.
+# Local development stack.
 #
 # Compose reads ./.env automatically (copy it from .env.example).
 # Service names double as hostnames on the default Compose network, so
 # containers connect to "postgres:5432" and "redis:6379" — never localhost.
+#
+# How the two hostnames are resolved
+# ----------------------------------
+# .env is host-facing: its DATABASE_URL and REDIS_URL point at localhost, which
+# is what `npm run db:migrate`, `npm run db:check` and `npm test` need, because
+# from the host those services are reachable only through the published
+# 127.0.0.1 ports below.
+#
+# A container cannot use that. Inside a container "localhost" is the container
+# itself, so the same URL would point at nothing. Each application service
+# therefore loads .env with `env_file` and then overrides exactly those two
+# variables with `environment`, which Compose gives precedence. One env file,
+# and the difference between host and container is visible in one place.
+#
+# This works at runtime because loadDotenv() (packages/shared/src/env.ts) never
+# overwrites a variable that is already set: values injected by Compose win
+# over any .env the process might find.
 
 services:
   postgres:
@@ -37,6 +51,134 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Brings the schema up to date, then exits.
+  #
+  # A one-shot service rather than something the API does on startup. Migrating
+  # from an application entrypoint means every replica races to run the same
+  # migration, and a bad migration turns into a restart loop instead of a
+  # failure someone can read. Here it runs once, and api and worker refuse to
+  # start unless it succeeded.
+  #
+  # Same image as the API: node-pg-migrate and the migrations/ directory are
+  # both in it, and the script is a root workspace script, so /app is the right
+  # working directory.
+  migrate:
+    build: &api_build
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: api-watchdog-api:dev
+    # A migration run is finished when it exits. Restarting it would re-run the
+    # runner against an already-current schema on every daemon restart.
+    restart: 'no'
+    env_file: [.env]
+    environment: &container_urls
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['npm', 'run', 'db:migrate']
+
+  api:
+    build: *api_build
+    image: api-watchdog-api:dev
+    restart: unless-stopped
+    env_file: [.env]
+    environment: *container_urls
+    ports:
+      # Loopback-bound like the backing services: reachable from the host for
+      # curl and for a host-run frontend, not exposed to the LAN.
+      - '127.0.0.1:${PORT:-3000}:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        # Not just "started" — the schema must actually be current before the
+        # API opens a pool against it.
+        condition: service_completed_successfully
+    healthcheck:
+      # GET /health is a liveness probe that deliberately touches no
+      # dependencies, so a brief database blip cannot get the API killed and
+      # restarted. "localhost" is correct here: this runs inside the container.
+      #
+      # node rather than curl or wget, because neither is in a slim image and
+      # installing one to answer a health check is a poor trade. Node 24 has
+      # fetch built in.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  worker:
+    build: *api_build
+    image: api-watchdog-api:dev
+    restart: unless-stopped
+    env_file: [.env]
+    environment: *container_urls
+    # Same image, different entrypoint. The worker is a second process, not a
+    # second service: no port, no HTTP surface, and the queue is its entire
+    # interface to the API.
+    command: ['node', 'apps/api/dist/worker.js']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Longer than Docker's 10s default, because worker.ts allows in-flight
+    # checks 30s to finish before it gives up. A shorter grace period here would
+    # SIGKILL the process mid-check and make that drain logic pointless.
+    stop_grace_period: 35s
+    # No healthcheck: it exposes no port to probe. A failed worker shows up as a
+    # restarting container and in its logs.
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: api-watchdog-web:dev
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:5173:5173'
+    environment:
+      # Where the dev server proxies /api. The browser still talks only to
+      # 5173, so it stays on one origin and the API needs no CORS rules — the
+      # same arrangement as running on the host, with the hostname changed from
+      # localhost to the api service.
+      #
+      # Read through process.env in vite.config.ts, which Vite does not
+      # populate from .env files; setting it here is what actually makes it
+      # take effect.
+      VITE_DEV_API_PROXY: http://api:3000
+      # Turns on the polling watcher. See apps/web/vite.config.ts.
+      VITE_USE_POLLING: '1'
+    volumes:
+      # Source from the host, so an edit in the editor reaches the dev server.
+      # Without this the container serves the copy baked into the image and
+      # nothing you type ever appears.
+      - ./apps/web:/app/apps/web
+      # Anonymous volumes that mask the host's node_modules directories.
+      #
+      # The bind mount above would otherwise overlay a Windows-built
+      # node_modules onto a Linux container. These keep the image's own
+      # install visible at both paths instead.
+      - /app/node_modules
+      - /app/apps/web/node_modules
+    depends_on:
+      # Only "started": the dev server proxies to the API lazily, per request,
+      # so it has no reason to refuse to boot while the API is still coming up.
+      - api
 
 volumes:
   postgres_data:

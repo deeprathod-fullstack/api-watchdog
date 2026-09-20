@@ -130,6 +130,45 @@ necessary.
 Append decisions here with the reason as they are made — this record is for
 future refactors and for interviews.
 
+### Local Docker stack (phase 3, decided)
+
+- **One image for API, worker and migrations.** They are two entrypoints in one
+  workspace with identical dependencies; separate images would be two things to
+  keep in step for no gain. Compose picks the command per service.
+- **`node:24-bookworm-slim`, not Alpine.** `bcrypt` is a native addon that
+  publishes prebuilt binaries for glibc but not musl. Alpine would compile it
+  from source and need python3/make/g++ in the image. ~80MB is worth not owning
+  a toolchain for a dependency on the login path.
+- **Containers run `node` directly, never `npm start`.** npm does not reliably
+  forward SIGTERM to the child, which would discard the graceful shutdown in
+  `index.ts` and `worker.ts` and let Docker SIGKILL them. Verified: both drain
+  and exit in under a second.
+- **`.env` stays host-facing; Compose overrides the two URLs.** `DATABASE_URL`
+  and `REDIS_URL` point at `localhost` for host tooling (`db:migrate`,
+  `db:check`, `npm test`) and are overridden per-service to the `postgres` and
+  `redis` hostnames. This works because `loadDotenv()` never overwrites a
+  variable that is already set. One env file, one place for the difference.
+- **Migrations are a one-shot `migrate` service**, not something the API does at
+  startup. Migrating from an entrypoint means replicas race, and a bad migration
+  becomes a restart loop instead of a readable failure. `api` and `worker` wait
+  on `service_completed_successfully`.
+- **The frontend container runs the Vite dev server, not a static build.** The
+  `/api` proxy keeps the browser on one origin, which is the only reason the API
+  needs no CORS middleware. A production image (static build, SPA fallback) is
+  deferred to the deployment work, where there is a real target to build for.
+- **`--host` is passed as a container argument, not set in `vite.config.ts`.**
+  Putting `host: true` in the config would also make the host dev server listen
+  on the LAN, which it deliberately does not do today.
+- **Polling file-watching, gated behind `VITE_USE_POLLING`.** A Windows host
+  does not deliver inotify events into a Linux container across a bind mount, so
+  HMR would silently never fire. Off by default so host development does not pay
+  the idle CPU cost.
+
+Known gap, deliberately not fixed here: Express `trust proxy` is unset, so with
+the frontend proxying through a container every request appears to come from one
+address and the in-memory rate limits become effectively global. Changing it
+changes application behaviour and belongs to its own decision.
+
 ## Development phases
 
 Follows spec §15, with one deliberate amendment (below). Pause to learn each
