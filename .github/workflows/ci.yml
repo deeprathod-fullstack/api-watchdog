@@ -1,0 +1,121 @@
+# Continuous integration: verify every change before it reaches main.
+#
+# This workflow only *checks* the code. It does not build or publish Docker
+# images and it does not deploy anything — deployment arrives later, as its own
+# piece of work.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Read-only by default. This repository is public, so the token handed to a
+# workflow run should be able to do no more than the job actually needs, and
+# this job only needs to read the code it is checking.
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run's result irrelevant.
+# Cancelling it frees a runner instead of spending minutes on an answer nobody
+# will read.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Service containers, started by the runner before any step and torn down
+    # afterwards. The suite talks to a real PostgreSQL and a real Redis rather
+    # than to fakes, so CI has to provide both.
+    #
+    # Only these two. The API, worker and frontend are NOT run here: the tests
+    # drive the Express app in-process and do not need a server listening, so
+    # reproducing the whole Compose stack would cost time and buy nothing.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          # CI-only throwaway credentials for a database that exists for a few
+          # minutes and is reachable only from this job. Never a real secret.
+          POSTGRES_USER: watchdog
+          POSTGRES_PASSWORD: watchdog
+          POSTGRES_DB: api_watchdog
+        ports:
+          # Published to the runner, which is where the test process runs, so
+          # the connection URLs below use localhost rather than a service name.
+          - 5432:5432
+        # The runner waits for this to report healthy before it runs the first
+        # step. That is what guarantees PostgreSQL is accepting connections
+        # before the tests start — no sleep, no retry loop of our own.
+        options: >-
+          --health-cmd "pg_isready -U watchdog -d api_watchdog"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Points at the service containers above. The suite never uses this
+      # database directly: apps/api/test/database-url.ts appends `_test` to the
+      # name, and global-setup.ts creates and migrates `api_watchdog_test`
+      # through the `postgres` maintenance database. Both need to exist, which
+      # is why POSTGRES_DB is set and why the user is the image's superuser.
+      DATABASE_URL: postgresql://watchdog:watchdog@localhost:5432/api_watchdog
+      REDIS_URL: redis://localhost:6379
+      # Supplied as a repository secret, never inline. The suite overrides this
+      # with its own signing key (apps/api/test/helpers.ts), so nothing here
+      # depends on its value today; it is wired up so that a future test or
+      # startup check reading it from the environment finds a real one.
+      JWT_SECRET: ${{ secrets.CI_JWT_SECRET }}
+
+      # NODE_ENV is deliberately not set. `testConfig()` hard-codes it to
+      # `test`, so a value here would be ignored, and setting it to
+      # `production` would make `npm ci` skip the devDependencies that the
+      # build and the tests both need.
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Read from .nvmrc so CI and local development cannot drift apart.
+          node-version-file: .nvmrc
+          # Caches ~/.npm keyed on package-lock.json, which makes `npm ci` on an
+          # unchanged lockfile a restore rather than a download.
+          cache: npm
+
+      - name: Install dependencies
+        # `ci`, not `install`: it installs exactly what the lockfile pins and
+        # fails if the lockfile and the manifests disagree, so a run tests the
+        # dependency set the repository actually declares.
+        run: npm ci
+
+      - name: Verify
+        # The project's own gate, unchanged: prettier --check, eslint,
+        # tsc across all three projects, then the full vitest suite.
+        run: npm run verify
+
+      - name: Build the API and shared package
+        run: npm run build
+
+      - name: Build the frontend bundle
+        # Separate from `npm run build`, which is `tsc -b` and covers only
+        # packages/shared and apps/api. Without this step a change that
+        # type-checks but breaks the Vite build would pass CI and fail later.
+        run: npm run build:web
