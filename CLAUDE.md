@@ -206,8 +206,47 @@ stack below.
   a decision about where `node-pg-migrate`, currently a devDependency, lives.
 - **Log rotation** (`json-file`, 3 × 10 MB) on every service, so a long-running
   host cannot fill its disk with logs.
-- **Not yet decided:** HTTPS (required before real public use), where images
-  are built (on EC2 or in CI with a registry), database backups.
+- **Not yet decided:** HTTPS (required before real public use), database
+  backups.
+
+### Deployment (phase 3, decided)
+
+- **SSH from GitHub Actions to one EC2 host; no AWS credentials in GitHub.**
+  The runner holds no code (`permissions: {}`, no checkout). It opens one SSH
+  session. The host fast-forwards its own checkout with its read-only GitHub
+  deploy key, then runs `scripts/deploy.sh` from the pulled commit.
+- **Two separate SSH keys.** EC2 → GitHub (the read-only deploy key) and GitHub
+  Actions → EC2 (a dedicated key, `restrict` in `authorized_keys`), so each can
+  be revoked alone. The Actions key is effectively root on the host, because
+  `ec2-user` has Docker.
+- **Host key pinned** through the `EC2_KNOWN_HOSTS` secret, captured on the host
+  itself, with `StrictHostKeyChecking=yes`. Plain `ssh`, no third-party SSH
+  action, so nothing outside the runner image handles the private key.
+- **Deploy logic in a versioned script**, not inline YAML. It can be run by hand
+  on the host and was exercised against the local production stack: success,
+  build failure, and startup failure.
+- **Build, then `up -d`, never `down`.** A build failure leaves the running
+  containers untouched. The running images are tagged `:prod-previous` only if
+  they are healthy, so a failed deploy cannot overwrite the rollback copy.
+  Rollback is manual; no automatic rollback system.
+- **Verification fails the run:** api and web healthy within 180s, the worker
+  running with no restarts, and from the host `/` and `/dashboard` return 200
+  and `/api/auth/me` returns 401.
+- **Automatic deploys are opt-in** through the repository variable
+  `DEPLOY_ON_PUSH=true`. One deploy at a time, never cancelled midway.
+- **Automatic deploys are gated on CI for the exact commit.** Deploy is
+  triggered by CI's `workflow_run` (not by `push`), and runs only when that CI
+  run succeeded for a push to `main` of this repository. The event and
+  repository checks keep out pull-request CI, including a fork's branch named
+  `main`. It deploys `workflow_run.head_sha`, never `github.sha`, which is just
+  the default branch's tip. The host fast-forwards to that exact commit rather
+  than `git pull`, so a newer, untested commit on `main` is never deployed with
+  it; an older result arriving late is skipped, never rolled back to. CI is
+  unchanged.
+- **Manual `workflow_dispatch` is the operator override:** runs only on `main`,
+  deploys the commit it was started on, and does not check CI.
+- **Images are built on EC2 for now.** Building in CI and pushing to a registry
+  is the planned next step.
 
 ## Development phases
 
