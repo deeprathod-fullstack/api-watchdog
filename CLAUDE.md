@@ -233,10 +233,20 @@ stack below.
   running with no restarts, and from the host `/` and `/dashboard` return 200
   and `/api/auth/me` returns 401.
 - **Automatic deploys are opt-in** through the repository variable
-  `DEPLOY_ON_PUSH=true`; manual `workflow_dispatch` always works. One deploy at
-  a time, never cancelled midway.
+  `DEPLOY_ON_PUSH=true`. One deploy at a time, never cancelled midway.
+- **Automatic deploys are gated on CI for the exact commit.** Deploy is
+  triggered by CI's `workflow_run` (not by `push`), and runs only when that CI
+  run succeeded for a push to `main` of this repository. The event and
+  repository checks keep out pull-request CI, including a fork's branch named
+  `main`. It deploys `workflow_run.head_sha`, never `github.sha`, which is just
+  the default branch's tip. The host fast-forwards to that exact commit rather
+  than `git pull`, so a newer, untested commit on `main` is never deployed with
+  it; an older result arriving late is skipped, never rolled back to. CI is
+  unchanged.
+- **Manual `workflow_dispatch` is the operator override:** runs only on `main`,
+  deploys the commit it was started on, and does not check CI.
 - **Images are built on EC2 for now.** Building in CI and pushing to a registry
-  is the planned next step. Deploy does not yet wait for CI on the same commit.
+  is the planned next step.
 
 ## Development phases
 

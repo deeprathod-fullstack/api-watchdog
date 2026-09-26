@@ -275,15 +275,19 @@ Pages and client-side routes work. `/api/*` returns 502 after the resolver's
 
 Production runs the stack above on one EC2 host (Amazon Linux 2023), from a
 clone of this repository at `~/api-watchdog`. The workflow
-`.github/workflows/deploy.yml` deploys the current `main` to it over SSH.
+`.github/workflows/deploy.yml` deploys `main` commits that have passed CI to
+it, over SSH.
 
 ```
-push to main / manual run
+push to main ──▶ CI (ci.yml) ── passed for commit abc123 ──┐
+                                                           ├─▶ Deploy (deploy.yml), for exactly abc123
+manual run (Actions tab, on main) ─────────────────────────┘
   │
   ▼
 GitHub Actions runner ── SSH, dedicated key, pinned host key ──▶ EC2 (ec2-user)
   (holds no code, no AWS credentials)                              │
-                                                                   ├─ git pull --ff-only origin main
+                                                                   ├─ git fetch origin main
+                                                                   │  fast-forward main to abc123
                                                                    │    (host's own read-only deploy key)
                                                                    └─ bash scripts/deploy.sh
                                                                         build images on the host
@@ -292,10 +296,42 @@ GitHub Actions runner ── SSH, dedicated key, pinned host key ──▶ EC2 (
 ```
 
 The runner never checks out the code and has no GitHub token permissions. It
-opens one SSH session. The host fast-forwards its checkout to `main`, then runs
-the `scripts/deploy.sh` from that commit, so a change to the script ships with
-the deploy that uses it. `.env.production` exists only on the host and never
-passes through GitHub. No AWS credentials are involved.
+opens one SSH session. The host fast-forwards its checkout to the commit being
+deployed, then runs the `scripts/deploy.sh` from that commit, so a change to
+the script ships with the deploy that uses it. `.env.production` exists only on
+the host and never passes through GitHub. No AWS credentials are involved.
+
+### CI → deploy
+
+An automatic deploy is triggered **by CI finishing**, not by the push. Deploy
+listens for CI's `workflow_run` event, which carries CI's result and the exact
+commit CI tested.
+
+- **When it runs.** The deploy job runs only if all of these hold, and is
+  skipped otherwise:
+  - `DEPLOY_ON_PUSH` is `true`;
+  - CI **succeeded**, not failed, cancelled or skipped;
+  - that CI run was for a **push to `main` of this repository**.
+
+  CI also runs on pull requests, and a fork's pull request can have a branch
+  named `main`. The event and repository checks make sure neither can trigger
+  a deploy.
+- **What it deploys: exactly the commit CI tested,** not whatever `main` points
+  to by then. If commit B is pushed while CI is still testing commit A, A's
+  green result deploys A. B deploys only once its own CI passes. The host
+  fast-forwards to that commit and first checks that it is in `main`'s history.
+- **Results can arrive out of order.** If A's result arrives after B has already
+  been deployed, the host sees it already runs something newer and does nothing.
+  It never goes backwards.
+
+So a commit reaches production automatically only after CI passed for **that
+exact commit**. CI itself is unchanged; Deploy only reads its result.
+
+**Manual runs are the exception.** **Actions → Deploy → Run workflow**, on
+`main`, deploys the `main` commit it was started on without checking CI. That
+is on purpose: it is the operator's override, for example to redeploy after
+fixing something on the host. Check that CI is green for that commit before
+using it for new code.
 
 ### Two SSH keys, two directions
 
@@ -322,7 +358,7 @@ Set under **Settings → Secrets and variables → Actions**. Values never go in
 | `EC2_USER`            | secret   | `ec2-user`                                                                   |
 | `EC2_SSH_PRIVATE_KEY` | secret   | the whole private key file, including the `BEGIN` / `END` lines              |
 | `EC2_KNOWN_HOSTS`     | secret   | the host's public key line, captured on the host (step 3 below)              |
-| `DEPLOY_ON_PUSH`      | variable | `true` to deploy automatically on every push to `main`; unset means manual only |
+| `DEPLOY_ON_PUSH`      | variable | `true` to deploy each `main` commit automatically once CI passes for it; unset means manual only |
 
 The workflow checks that all four secrets are set, and fails with the missing
 name if one isn't.
@@ -391,17 +427,21 @@ all.
 - Go to **Actions → Deploy → Run workflow**, or run
   `gh workflow run deploy.yml --ref main`.
 - Once a manual run has succeeded, set the repository variable
-  `DEPLOY_ON_PUSH` to `true`. Every push to `main` then deploys.
+  `DEPLOY_ON_PUSH` to `true`. From then on, every push to `main` deploys as
+  soon as its CI passes.
 
-Whichever branch you pick in the Run workflow form, the host always deploys
-`origin/main`.
+Pick `main` in the Run workflow form. A run started on any other branch is
+skipped.
 
 ### What a deployment does and verifies
 
 1. **Host checkout.** The run refuses to deploy if tracked files have been
-   edited on the host. It then runs `git fetch origin main`,
-   `git checkout main` and `git pull --ff-only origin main`. A diverged history
-   fails the run instead of being merged.
+   edited on the host. It then runs `git fetch origin main` and
+   `git checkout main`, and checks that the target commit is in
+   `origin/main`'s history. If the host already runs a newer commit, it stops
+   successfully without changing anything. Otherwise it fast-forwards `main`
+   to exactly the target commit (`git merge --ff-only <sha>`). A diverged
+   history fails the run instead of being merged.
 2. **Preflight.** `.env.production` must exist, and the Compose file must
    resolve with it, so a missing variable is caught before anything changes.
 3. **Rollback copy.** If the running api and web are both healthy, their images
@@ -423,8 +463,9 @@ Any failure prints container status and recent logs of `migrate`, `api`,
 `worker` and `web`, and fails the run. These logs never contain secrets or
 request headers.
 
-Deployments never run in parallel, and a running one is never cancelled. A push
-made during a deploy waits, then deploys the latest `main`.
+Deployments never run in parallel, and a running one is never cancelled. A
+deploy triggered while another runs waits for it, then deploys its own commit,
+or skips it if the host already runs something newer.
 
 ### When a deployment fails
 
@@ -452,9 +493,8 @@ may already run the new version.
 - **Images are built on the EC2 host.** Each deploy spends the host's CPU and
   memory on `npm ci` and compilation while it is also serving traffic. On a
   small instance that is slow, and it can run out of memory.
-- **Deploy does not wait for CI.** On a push to `main` both workflows start
-  together. Changes normally reach `main` through pull requests where CI has
-  already passed, but a direct push could deploy a failing commit.
+- **Manual runs skip the CI check** (see "CI → deploy"). Automatic deploys never
+  do.
 - **Brief API interruption.** Replacing the single api container can fail
   requests for about a second.
 - **No HTTPS yet.** See the warning in "Production stack".
@@ -465,7 +505,6 @@ may already run the new version.
 - Build the images in GitHub Actions and push them to a registry (GHCR or ECR).
   The host would then only pull and restart: faster, predictable, and no build
   load on the server. Rollback becomes "run the previous tag".
-- Deploy only after CI has passed on the same commit.
 - A GitHub environment with required reviewers, for an approval step.
 - Replace inbound SSH with AWS Systems Manager, which closes port 22.
 

@@ -13,9 +13,20 @@
 name: Deploy
 
 on:
-  push:
+  # Automatic deploys start from CI, never from the push itself. A push to main
+  # runs CI; when that CI run completes, this workflow is triggered with the
+  # run's result and the exact commit it tested. The job below deploys only
+  # when that run succeeded, so an automatic deploy can never get ahead of CI.
+  #
+  # `workflows` names the CI workflow by its `name:` (ci.yml -> "CI").
+  # workflow_run always uses this file as it is on the default branch.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   # Manual run from the Actions tab, e.g. to redeploy after fixing the host.
+  # Deliberately not gated on CI: it is the operator's override. It deploys the
+  # main commit it was started on.
   workflow_dispatch:
 
 # The job needs no GitHub token access at all: it never checks out the code,
@@ -24,18 +35,35 @@ permissions: {}
 
 # One deployment at a time, and never cancel one halfway: an interrupted
 # rollout can leave some containers on the new version and some on the old.
-# A newer push waits for the running deploy, then deploys the latest main.
+# A deploy triggered while another runs waits for it, then deploys its own
+# commit (and skips it if the host already runs something newer).
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
 jobs:
   deploy:
-    # Automatic deploys on push are switched on only when the repository
-    # variable DEPLOY_ON_PUSH is "true" (Settings -> Secrets and variables ->
-    # Actions -> Variables). Until then a push to main deploys nothing, and a
-    # deploy happens only when someone runs this workflow by hand.
-    if: github.event_name == 'workflow_dispatch' || vars.DEPLOY_ON_PUSH == 'true'
+    # Two ways in, each with its own conditions:
+    #
+    # Manual: workflow_dispatch started on main.
+    #
+    # Automatic, all of:
+    #   - the repository variable DEPLOY_ON_PUSH is "true" (Settings ->
+    #     Secrets and variables -> Actions -> Variables). Until it is, CI
+    #     passing on main deploys nothing;
+    #   - the CI run succeeded (not failed, cancelled or skipped);
+    #   - it was CI for a push, not for a pull request;
+    #   - on main of this repository. A fork's pull request can also have a
+    #     head branch called "main", which the `branches` filter alone would
+    #     let through; the event and repository checks shut that out.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       vars.DEPLOY_ON_PUSH == 'true' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     # Covers building both images on the host plus the health wait.
     timeout-minutes: 30
@@ -78,9 +106,12 @@ jobs:
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
+          # The exact commit to deploy. For workflow_run it must be the commit
+          # CI tested (head_sha): github.sha is merely the default branch's tip
+          # at trigger time, which may be a newer commit CI has not passed.
+          DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         # The heredoc is quoted ('REMOTE'), so nothing in it is expanded on the
-        # runner; it runs as a script on the host. The requested commit is
-        # passed as $1 only to be reported alongside what was deployed.
+        # runner; it runs as a script on the host, with the commit as $1.
         run: |
           ssh \
             -i ~/.ssh/deploy_key \
@@ -92,10 +123,15 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=6 \
             "${EC2_USER}@${EC2_HOST}" \
-            bash -s -- "$GITHUB_SHA" <<'REMOTE'
+            bash -s -- "$DEPLOY_SHA" <<'REMOTE'
           set -euo pipefail
-          requested="$1"
+          target="$1"
           cd ~/api-watchdog
+
+          if ! [[ "$target" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "[deploy] FAILED: not a full commit SHA: '${target}'" >&2
+            exit 1
+          fi
 
           # Refuse to deploy over hand edits to tracked files: a fast-forward
           # would either fail on them or silently keep them running. Untracked
@@ -109,11 +145,30 @@ jobs:
           previous="$(git rev-parse --short HEAD)"
           git fetch origin main
           git checkout main
-          git pull --ff-only origin main
-          current="$(git rev-parse --short HEAD)"
-          echo "[deploy] ${previous} -> ${current} (workflow commit ${requested:0:7})"
 
-          # The script from the commit just pulled, so a change to it takes
+          # Deploy exactly the commit this run was started for — not the tip of
+          # main, which may already hold a newer commit whose CI has not
+          # passed. It must be part of main's history.
+          if ! git merge-base --is-ancestor "$target" origin/main; then
+            echo "[deploy] FAILED: ${target:0:7} is not on origin/main" >&2
+            exit 1
+          fi
+
+          # Never go backwards. CI runs can finish out of order; if the host
+          # already runs a newer main commit, this older one is obsolete.
+          current="$(git rev-parse HEAD)"
+          if [ "$current" != "$target" ] && git merge-base --is-ancestor "$target" "$current"; then
+            echo "[deploy] host already runs ${current:0:7}, which is newer than ${target:0:7}; nothing to deploy"
+            exit 0
+          fi
+
+          # Fast-forward the local main to that commit. Only a fast-forward: a
+          # host history that has diverged from origin fails here instead of
+          # being merged.
+          git merge --ff-only "$target"
+          echo "[deploy] ${previous} -> $(git rev-parse --short HEAD)"
+
+          # The script from the commit being deployed, so a change to it takes
           # effect in the same deployment that ships it.
           exec bash scripts/deploy.sh
           REMOTE
