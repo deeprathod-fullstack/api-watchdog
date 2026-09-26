@@ -49,8 +49,9 @@ the worker the app still runs, but nothing is checked on a schedule; only
 The frontend container runs the Vite dev server with your `apps/web` directory
 mounted, so editing a file hot-reloads exactly as it does on the host. It
 proxies `/api` to the API container, so the browser talks to a single origin and
-the API needs no CORS configuration. That is why `VITE_API_BASE_URL` is empty in
-development; in production it is the deployed API's origin.
+the API needs no CORS configuration. That is why `VITE_API_BASE_URL` is empty.
+Production keeps it empty too, with the same single-origin setup: see
+[Production frontend image](#production-frontend-image).
 
 ### Running on the host instead
 
@@ -107,8 +108,31 @@ non-root user on port 8080.
 - **Caching.** Files under `/assets/` have content hashes in their names and are
   cached for a year. `index.html` is never cached, so a new deploy is picked up
   straight away. A missing asset is a real 404, never HTML.
-- **No API.** `/api/*` returns 404. This image does not proxy to the backend.
-  How production requests reach the API has not been decided yet.
+- **No API yet.** `/api/*` returns 404 rather than falling through to
+  `index.html`. See below for why.
+
+### Production API routing: same origin
+
+In production the browser talks to one origin, the frontend Nginx, which
+routes by path:
+
+```
+Browser
+  ↓
+Frontend Nginx
+  ├── /       → React static files
+  └── /api/*  → Node/Express API
+```
+
+The frontend keeps making relative `/api/...` requests, exactly as in
+development. There is no separate API origin, so the API needs no CORS
+configuration.
+
+The `/api` proxy is **not in this image yet**. `proxy_pass` has to name the
+API's hostname, and Nginx refuses to start if that name does not resolve. When
+the image runs on its own there is no API host, so adding the proxy now would
+break standalone testing, or else need environment-specific config. It arrives
+with the deployment work, once there is a real topology to point it at.
 
 Build and run it locally:
 
@@ -119,7 +143,7 @@ docker run --rm -p 127.0.0.1:8080:8080 api-watchdog-web:prod
 
 Then open <http://localhost:8080>. Pages load and client-side routes work, but
 login and data calls fail, because nothing answers `/api` in this setup. That is
-expected until production API routing is in place.
+expected until the `/api` proxy is added.
 
 ## Checks
 
