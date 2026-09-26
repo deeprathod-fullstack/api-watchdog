@@ -1,0 +1,207 @@
+# Production stack.
+#
+# The same system as docker-compose.yml, arranged the way it runs in
+# production: a static frontend behind Nginx, no dev servers, no source
+# mounts, and exactly one published port.
+#
+#     Browser ──▶ web (Nginx :8080) ──┬── /       static React build
+#                                     └── /api/*  api:3000 ──▶ postgres, redis
+#                                                  worker ───▶ postgres, redis
+#
+# Always run it through the npm scripts (npm run prod:up, prod:down, prod:logs,
+# prod:ps). They pass this file AND --env-file .env.production every time.
+# Without --env-file, Compose silently falls back to ./.env — the development
+# file, with development credentials — and the stack would start happily on
+# the wrong secrets.
+#
+# A standalone file rather than an override layered on docker-compose.yml:
+# nearly everything in the dev file (source mounts, the Vite server, published
+# database ports) is something production must NOT have, and removing things
+# through an override is harder to read than stating the stack plainly.
+
+# A separate Compose project. Containers, the network and the volumes are all
+# prefixed with this name, so nothing here can touch the development stack
+# (project "api-watchdog") or its data, and both can run side by side.
+name: api-watchdog-prod
+
+# Docker's default json-file log has no size limit and would eventually fill
+# the disk of a long-running host. Three files of 10 MB per container.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+# Configuration the API and the worker share, as the processes see it.
+#
+# Every value comes from .env.production; `:?` makes `docker compose` refuse to
+# start with a clear message if one is missing, instead of starting a stack
+# that fails later. Both URLs name Compose services, never localhost: inside a
+# container localhost is the container itself.
+#
+# The worker needs JWT_SECRET only because the shared config schema requires it
+# of every process; it never signs or verifies a token.
+x-app-environment: &app_environment
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:?set LOG_LEVEL in .env.production}
+  DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env.production}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env.production}
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:?set DATABASE_POOL_MAX in .env.production}
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.production}
+
+# The existing API image, unchanged: compiled with tsc, run with node directly.
+# One image for migrate, api and worker, as in development; tagged :prod so it
+# never overwrites the development :dev image.
+x-api-build: &api_build
+  context: .
+  dockerfile: apps/api/Dockerfile
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      # Applied only when the data volume is first initialised. Changing the
+      # password here later does not change it inside an existing database.
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.production}
+    # No ports: reachable only by containers on this project's network. For a
+    # shell, use `docker compose ... exec postgres psql -U <user> <db>`.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *logging
+    # Append-only file persistence, so schedules survive a Redis restart.
+    #
+    # Redis is not a source of truth here — jobs carry only a monitor id — but
+    # the API rebuilds schedules from PostgreSQL only when the API starts. If
+    # Redis alone restarted with no persistence, every schedule would be gone
+    # and nothing would be checked until someone restarted the API.
+    #
+    # Eviction stays at Redis's default, noeviction, which BullMQ requires: an
+    # evicting Redis would silently delete queue keys under memory pressure.
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Brings the schema up to date, then exits. Same reasoning as development:
+  # never from the API's startup, where replicas would race and a bad
+  # migration would become a restart loop.
+  #
+  # It runs on every `up`; with nothing pending it exits 0 at once. While it
+  # runs, the previous api container may still be serving, so migrations must
+  # stay backward-compatible with the release before them.
+  migrate:
+    build: *api_build
+    image: api-watchdog-api:prod
+    restart: 'no'
+    logging: *logging
+    environment:
+      # node-pg-migrate reads only this; it does not load the app config.
+      DATABASE_URL: postgresql://${POSTGRES_USER:?set POSTGRES_USER in .env.production}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env.production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['npm', 'run', 'db:migrate']
+
+  api:
+    build: *api_build
+    image: api-watchdog-api:prod
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      <<: *app_environment
+      PORT: 3000
+    # No ports: the only way in is through web's /api proxy. That is also what
+    # makes `trust proxy = 1` safe — nothing can reach the API without passing
+    # through exactly one Nginx hop.
+    expose:
+      - '3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # Same liveness probe as development: /health touches no dependency.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # index.ts gives in-flight requests 10s before forcing its own exit.
+    # Docker's default is also 10s, so the two would tie and Docker could
+    # SIGKILL the process during its last cleanup. 15s leaves margin.
+    stop_grace_period: 15s
+
+  worker:
+    build: *api_build
+    image: api-watchdog-api:prod
+    restart: unless-stopped
+    logging: *logging
+    environment: *app_environment
+    command: ['node', 'apps/api/dist/worker.js']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # worker.ts allows in-flight checks 30s to finish; see docker-compose.yml.
+    stop_grace_period: 35s
+    # No healthcheck and no port, as in development.
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.prod
+    image: api-watchdog-web:prod
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      # The only published port in the stack.
+      #
+      # Locally the defaults bind loopback only: http://127.0.0.1:8080.
+      # On EC2, .env.production sets WEB_BIND=0.0.0.0 and WEB_PORT=80.
+      - '${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:8080'
+    depends_on:
+      # Nginx itself would start without the API (the upstream is resolved per
+      # request), but waiting means the first /api requests do not 502.
+      api:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost: in this image localhost resolves to ::1
+      # first, and Nginx listens on IPv4 only.
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:8080/']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

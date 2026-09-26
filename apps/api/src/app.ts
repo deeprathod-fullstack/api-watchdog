@@ -66,6 +66,21 @@ export function createApp({
   // Do not advertise the server implementation to anyone scanning.
   app.disable('x-powered-by');
 
+  // Trust exactly one proxy hop: the Nginx container in front of the API.
+  //
+  // Behind Nginx every connection arrives from Nginx's own address, so without
+  // this `req.ip` is the same for every visitor and the IP-keyed rate limits
+  // collapse into one global bucket: one person guessing passwords would lock
+  // everybody out of signing in. With it, `req.ip` is the right-most
+  // X-Forwarded-For entry — the one Nginx appended from the real peer.
+  //
+  // `1`, never `true`. `true` trusts the whole header, including entries the
+  // client wrote itself, so anyone could pick their own rate-limit bucket by
+  // sending a fake X-Forwarded-For. This also assumes the API is reachable
+  // only through that one proxy: docker-compose.prod.yml publishes no API port,
+  // and a second proxy in front (a load balancer) means this becomes `2`.
+  app.set('trust proxy', 1);
+
   // A body parser without a limit is a cheap memory-exhaustion vector.
   app.use(express.json({ limit: '100kb' }));
 
