@@ -1,0 +1,58 @@
+# Production image for the frontend: a static build served by Nginx.
+#
+# The development image is apps/web/Dockerfile (the Vite dev server with HMR),
+# and that is what docker-compose.yml runs. This file is separate so the two can
+# never interfere: nothing here changes how local development works.
+#
+# Build context is the REPOSITORY ROOT, like the other images:
+#     docker build -f apps/web/Dockerfile.prod -t api-watchdog-web:prod .
+#
+# Multi-stage: two FROM lines, two images. The first has Node and the whole
+# toolchain and exists only to run `vite build`. The second starts from a clean
+# Nginx image and copies in nothing but the built files. Only the last stage
+# becomes the image, so Node, npm, node_modules and the source never ship.
+
+# ---- Stage 1: build ---------------------------------------------------------
+# Same base as the other images, so the build runs on the Node version .nvmrc
+# names.
+FROM node:24-bookworm-slim AS build
+
+WORKDIR /app
+
+# Manifests first, so editing source does not reinstall dependencies. All four
+# are needed: npm reads the whole workspace graph before it installs anything,
+# and vite itself is hoisted into the root package.json.
+COPY package.json package-lock.json ./
+COPY packages/shared/package.json packages/shared/
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+
+RUN npm ci
+
+# Only what the frontend build reads. apps/web/tsconfig.json extends
+# tsconfig.base.json. .dockerignore already keeps out node_modules, dist and
+# every .env file, so a developer's apps/web/.env.local cannot leak its values
+# into the bundle.
+COPY tsconfig.base.json ./
+COPY apps/web apps/web
+
+# The project's own frontend build command, writing apps/web/dist.
+#
+# VITE_API_BASE_URL is not set, so the bundle calls /api/... on the origin that
+# served it — the same as development. See the /api/ block in nginx.conf.
+RUN npm run build:web
+
+# ---- Stage 2: serve ---------------------------------------------------------
+# The unprivileged variant of the official Nginx image, which runs as a non-root
+# user like the other images in this project. Alpine is fine here: unlike the
+# API there are no native Node addons, because there is no Node.
+FROM nginxinc/nginx-unprivileged:1.28-alpine
+
+COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+
+EXPOSE 8080
+
+# No CMD: the base image already runs `nginx -g 'daemon off;'` as PID 1 and
+# sets STOPSIGNAL SIGQUIT, which is Nginx's graceful shutdown (finish in-flight
+# requests, then exit). The Node images run node directly for the same reason.
