@@ -1,0 +1,434 @@
+# Production stack and deployment
+
+Operational reference for running API Watchdog in production: the production
+Docker Compose stack, and deploying it to EC2 with GitHub Actions. The
+[README](../README.md) has the overview.
+
+## Production stack
+
+`docker-compose.prod.yml` runs the whole system the way it runs in production:
+a static frontend behind Nginx, compiled Node processes, no dev servers, no
+source mounts, and exactly one published port. It runs locally the same way it
+will run on the server.
+
+> **HTTPS is required before real public use.** This stack serves plain HTTP.
+> Login sends a password and every API call carries a bearer token, and over
+> HTTP anyone on the network path can read both. Loopback-only local testing is
+> fine; a public deployment is not, until TLS is in front of it.
+
+### Architecture
+
+```
+Browser
+  │  http://127.0.0.1:8080 locally  ·  port 80 on EC2
+  ▼
+web  (Nginx, :8080) ─── the only published port
+  ├── /        → React static files (SPA fallback to index.html)
+  └── /api/*   → api:3000
+                   │
+                   ├──▶ postgres:5432   (data: named volume)
+                   └──▶ redis:6379      (queue: named volume, AOF)
+                             ▲
+worker ──────────────────────┘  consumes check jobs, writes results to postgres
+
+migrate  runs the migrations once, exits, and api + worker start only after it
+         succeeds
+```
+
+The browser only ever talks to Nginx. The frontend keeps making the same
+relative `/api/...` requests as in development, so there is no separate API
+origin and the API needs no CORS configuration.
+
+### Development vs production Compose
+
+|                  | `docker-compose.yml` (development) | `docker-compose.prod.yml` (production)  |
+| ---------------- | ---------------------------------- | --------------------------------------- |
+| Compose project  | `api-watchdog`                     | `api-watchdog-prod`                     |
+| Frontend         | Vite dev server, HMR, source mount | Nginx serving the static build          |
+| Published ports  | 5173, 3000, 5432, 6379 (loopback)  | **8080 only** (web)                     |
+| Env file         | `.env` (host-facing URLs)          | `.env.production` (secrets only)        |
+| Image tags       | `:dev`                             | `:prod`                                 |
+| Redis            | in memory                          | AOF persistence on a volume             |
+| Log files        | Docker default (unbounded)         | rotated: 3 × 10 MB per container        |
+| Env per service  | whole `.env` to every app service  | only the variables each service needs   |
+
+The project name prefixes every container, network and volume, so the two
+stacks share nothing — not even the database volume — and can run side by
+side.
+
+### Environment
+
+```bash
+cp .env.production.example .env.production
+```
+
+Then replace every placeholder:
+
+- `POSTGRES_PASSWORD`: `openssl rand -hex 32`. Hex because the password is
+  embedded in `DATABASE_URL`, where `@ / : #` would break the URL.
+- `JWT_SECRET`: `openssl rand -base64 48`. Never reuse a development value.
+- `WEB_BIND` / `WEB_PORT`: `127.0.0.1` / `8080` locally; `0.0.0.0` / `80` on
+  EC2.
+
+`.env.production` is gitignored and never enters an image (`.dockerignore`
+excludes it). It holds only what differs per deployment: `DATABASE_URL`,
+`REDIS_URL`, `NODE_ENV=production` and `PORT` are set in the Compose file and
+point at the internal service names, never at localhost. A missing value stops
+`docker compose` with an error naming it, before anything starts.
+
+`POSTGRES_USER` / `POSTGRES_PASSWORD` only take effect when the database volume
+is first created. Changing them later does not change an existing database.
+
+### Running it
+
+Always through the npm scripts. Each one passes `docker-compose.prod.yml` and
+`--env-file .env.production` explicitly. Without `--env-file`, Compose would
+silently read the development `.env` instead, with development credentials.
+
+```bash
+npm run prod:up             # build images, then start everything in the background
+npm run prod:ps             # status and health of each service
+npm run prod:logs           # all logs; add -- -f api worker to follow two
+npm run prod:down           # stop and remove containers; volumes (data) are kept
+```
+
+Then open <http://127.0.0.1:8080>. A quick end-to-end check of the proxy:
+
+```bash
+curl -i http://127.0.0.1:8080/api/auth/me
+# 401 {"error":{"code":"unauthenticated",...}} — Express answered via Nginx
+```
+
+To delete the production database too, remove the volumes explicitly:
+`docker compose -f docker-compose.prod.yml --env-file .env.production down -v`.
+
+### Migrations
+
+The one-shot `migrate` service runs `npm run db:migrate` from the API image,
+after PostgreSQL is healthy. `api` and `worker` start only once it has **exited
+successfully**. The API never migrates on startup: replicas would race, and a
+bad migration would turn into a restart loop instead of one readable failure.
+
+It runs on every `prod:up`. With nothing pending it prints
+`No migrations to run!` and exits at once. If a migration fails, api and worker
+stay down, and `npm run prod:logs -- migrate` shows why.
+
+While `migrate` runs during a redeploy, the previous api container may still be
+serving. Migrations must therefore stay backward-compatible with the release
+before them: add a column in one release, drop the old one in a later one.
+
+### Internal networking and the `/api` proxy
+
+Compose puts every service on one private network and makes each service name a
+hostname on it. The api reaches `postgres:5432` and `redis:6379`, and Nginx
+reaches `api:3000`. Only `web` publishes a port. The API, PostgreSQL and Redis
+cannot be reached from the host at all; for a database shell use
+`docker compose -f docker-compose.prod.yml --env-file .env.production exec postgres psql -U watchdog api_watchdog`.
+
+`apps/web/nginx.conf` proxies `/api/*` to `http://api:3000`, keeping the full
+path (Express mounts its routes under `/api`), and sets `Host`,
+`X-Forwarded-For` and `X-Forwarded-Proto`. The upstream is resolved through
+Docker's DNS at `127.0.0.11` on every request, re-checked every 10 seconds,
+rather than once at startup. That has two effects:
+
+- recreating the api container, which gives it a new IP, never leaves Nginx
+  sending traffic to the old address;
+- the image still starts on its own, outside Compose. There, `/api/*` returns
+  502 (after a 5-second resolver timeout) and the static site works normally.
+
+Express is configured with `trust proxy = 1`. It believes exactly one proxy hop
+— Nginx — and takes the client address from the entry Nginx appends to
+`X-Forwarded-For`, ignoring anything the client wrote there itself. Without it,
+every request would appear to come from Nginx, and the per-IP login limit would
+become one bucket for everybody. This is only safe because nothing can reach the
+API except through Nginx; a load balancer in front would make it `2`.
+
+### Redis persistence (AOF)
+
+Redis is not a source of truth here. Jobs carry only a monitor id, and the
+worker reads the monitor back from PostgreSQL. But the API rebuilds schedules
+from PostgreSQL **only when the API starts**. Without persistence, a restart of
+Redis alone would drop every schedule, and nothing would be checked until
+someone restarted the API. With `--appendonly yes` and a volume, schedules
+survive a Redis restart. Eviction stays at Redis's default, `noeviction`, which
+BullMQ requires.
+
+### Shutdown
+
+`npm run prod:down` sends SIGTERM to each container:
+
+- The API drains in-flight requests. It has 15s before Docker force-kills it;
+  its own timeout is 10s.
+- The worker finishes checks already running. It has 35s; its own timeout is
+  30s.
+- Nginx is stopped with SIGQUIT, its graceful shutdown.
+
+Data lives in the `api-watchdog-prod_postgres_data` and
+`api-watchdog-prod_redis_data` volumes, which `down` keeps.
+
+### The production frontend image
+
+`apps/web/Dockerfile.prod` is a **multi-stage build**. The first stage starts
+from Node, runs `npm ci`, then `npm run build:web`, which writes the static
+bundle to `apps/web/dist`. The second stage starts again from a clean
+`nginx-unprivileged` image and copies in only that `dist/` directory and
+`apps/web/nginx.conf`. Only the last stage becomes the image. Node, npm,
+`node_modules` and the source are all left behind in the build stage, which
+brings the image down from about 780 MB to about 80 MB. Nginx runs as a
+non-root user on port 8080.
+
+Besides the proxy, `nginx.conf` handles:
+
+- **SPA fallback.** A path that is not a real file (`/login`, `/dashboard`,
+  `/monitors/42/history`, …) gets `index.html`, so a refresh or a pasted link
+  reaches React Router instead of an Nginx 404.
+- **Caching.** Files under `/assets/` have content hashes in their names and are
+  cached for a year. `index.html` is never cached, so a new deploy is picked up
+  straight away. A missing asset is a real 404, never HTML.
+
+The image can still be tested on its own, without the rest of the stack:
+
+```bash
+docker build -f apps/web/Dockerfile.prod -t api-watchdog-web:prod .
+docker run --rm -p 127.0.0.1:8080:8080 api-watchdog-web:prod
+```
+
+Pages and client-side routes work. `/api/*` returns 502 after the resolver's
+5-second timeout, because outside Compose there is no Docker DNS and no API.
+
+## Deployment (EC2 via GitHub Actions)
+
+Production runs the stack above on one EC2 host (Amazon Linux 2023), from a
+clone of this repository at `~/api-watchdog`. The workflow
+`.github/workflows/deploy.yml` deploys `main` commits that have passed CI to
+it, over SSH.
+
+```
+push to main ──▶ CI (ci.yml) ── passed for commit abc123 ──┐
+                                                           ├─▶ Deploy (deploy.yml), for exactly abc123
+manual run (Actions tab, on main) ─────────────────────────┘
+  │
+  ▼
+GitHub Actions runner ── SSH, dedicated key, pinned host key ──▶ EC2 (ec2-user)
+  (holds no code, no AWS credentials)                              │
+                                                                   ├─ git fetch origin main
+                                                                   │  fast-forward main to abc123
+                                                                   │    (host's own read-only deploy key)
+                                                                   └─ bash scripts/deploy.sh
+                                                                        build images on the host
+                                                                        docker compose up -d
+                                                                        wait for health, check HTTP
+```
+
+The runner never checks out the code and has no GitHub token permissions. It
+opens one SSH session. The host fast-forwards its checkout to the commit being
+deployed, then runs the `scripts/deploy.sh` from that commit, so a change to
+the script ships with the deploy that uses it. `.env.production` exists only on
+the host and never passes through GitHub. No AWS credentials are involved.
+
+### CI → deploy
+
+An automatic deploy is triggered **by CI finishing**, not by the push. Deploy
+listens for CI's `workflow_run` event, which carries CI's result and the exact
+commit CI tested.
+
+- **When it runs.** The deploy job runs only if all of these hold, and is
+  skipped otherwise:
+  - `DEPLOY_ON_PUSH` is `true`;
+  - CI **succeeded**, not failed, cancelled or skipped;
+  - that CI run was for a **push to `main` of this repository**.
+
+  CI also runs on pull requests, and a fork's pull request can have a branch
+  named `main`. The event and repository checks make sure neither can trigger
+  a deploy.
+- **What it deploys: exactly the commit CI tested,** not whatever `main` points
+  to by then. If commit B is pushed while CI is still testing commit A, A's
+  green result deploys A. B deploys only once its own CI passes. The host
+  fast-forwards to that commit and first checks that it is in `main`'s history.
+- **Results can arrive out of order.** If A's result arrives after B has already
+  been deployed, the host sees it already runs something newer and does nothing.
+  It never goes backwards.
+
+So a commit reaches production automatically only after CI passed for **that
+exact commit**. CI itself is unchanged; Deploy only reads its result.
+
+**Manual runs are the exception.** **Actions → Deploy → Run workflow**, on
+`main`, deploys the `main` commit it was started on without checking CI. That
+is on purpose: it is the operator's override, for example to redeploy after
+fixing something on the host. Check that CI is green for that commit before
+using it for new code.
+
+### Two SSH keys, two directions
+
+| Key                     | Direction              | Lives                                                | Can do                       |
+| ----------------------- | ---------------------- | ---------------------------------------------------- | ---------------------------- |
+| EC2 GitHub deploy key   | EC2 → GitHub           | private key on EC2; public key in the repo's Deploy keys (read-only) | fetch this repository        |
+| GitHub Actions deploy key | GitHub Actions → EC2 | private key in the `EC2_SSH_PRIVATE_KEY` secret; public key in EC2 `~/.ssh/authorized_keys` | log in to EC2 as `ec2-user` |
+
+They are deliberately separate. Each can be revoked without breaking the other,
+and a leak of one grants only its own direction. The Actions key is used for
+nothing else.
+
+**Treat the Actions key as root on the host.** `ec2-user` is in the `docker`
+group, and Docker access is equivalent to root. Anyone who holds that key can
+do anything on the machine.
+
+### Repository secrets and variable
+
+Set under **Settings → Secrets and variables → Actions**. Values never go in Git.
+
+| Name                  | Kind     | Value                                                                        |
+| --------------------- | -------- | ---------------------------------------------------------------------------- |
+| `EC2_HOST`            | secret   | the EC2 public IP or DNS name, exactly as written in `EC2_KNOWN_HOSTS`       |
+| `EC2_USER`            | secret   | `ec2-user`                                                                   |
+| `EC2_SSH_PRIVATE_KEY` | secret   | the whole private key file, including the `BEGIN` / `END` lines              |
+| `EC2_KNOWN_HOSTS`     | secret   | the host's public key line, captured on the host (step 3 below)              |
+| `DEPLOY_ON_PUSH`      | variable | `true` to deploy each `main` commit automatically once CI passes for it; unset means manual only |
+
+The workflow checks that all four secrets are set, and fails with the missing
+name if one isn't.
+
+### One-time setup
+
+**1. Create the GitHub Actions key pair** on your own machine, not on EC2:
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "github-actions-deploy@api-watchdog" -f ./gha_deploy_key
+```
+
+This creates `gha_deploy_key` (private) and `gha_deploy_key.pub` (public). The
+key has no passphrase because the workflow cannot type one. The GitHub secret
+store is what protects it.
+
+**2. Authorize it on EC2.** Over your existing SSH session, append the public
+key to `~/.ssh/authorized_keys` with the `restrict` prefix. That disables port,
+agent and X11 forwarding and terminal allocation for this key. Running commands
+still works, and that is all the workflow needs.
+
+```bash
+# on EC2, pasting the one line from gha_deploy_key.pub:
+echo 'restrict ssh-ed25519 AAAA...your-public-key... github-actions-deploy@api-watchdog' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Do not reuse the host's existing GitHub deploy key, and do not add
+`gha_deploy_key.pub` to GitHub.
+
+**3. Capture the host key on the host itself**, for `EC2_KNOWN_HOSTS`:
+
+```bash
+# on EC2, replacing <EC2_HOST> with the exact value you will put in EC2_HOST:
+echo "<EC2_HOST> $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
+```
+
+Reading it from the host over a session you already trust is the point. Running
+`ssh-keyscan` from elsewhere would record whatever answered at that address. The
+workflow connects with `StrictHostKeyChecking=yes`, so it refuses any host that
+does not present exactly this key.
+
+**4. Check the key works** from your machine:
+
+```bash
+ssh -i ./gha_deploy_key -o IdentitiesOnly=yes ec2-user@<EC2_HOST> 'cd ~/api-watchdog && git status -sb'
+```
+
+The output should show `## main...origin/main` and no modified files.
+
+**5. Store the secrets.** Add them as described above, pasting the whole content
+of `gha_deploy_key` into `EC2_SSH_PRIVATE_KEY`. Then **delete the local private
+key file**: GitHub now holds the only copy you need, and a replacement is one
+`ssh-keygen` away.
+
+**6. Security group.** SSH (port 22) must be reachable from GitHub-hosted
+runners. Their addresses are many and they change, so in practice port 22 is
+open to the internet and the protection is key-only authentication. Confirm on
+the host that password login is off: `sudo sshd -T | grep -i passwordauthentication`
+must print `passwordauthentication no`. Port 80 is the only other
+inbound rule the stack needs. PostgreSQL, Redis and the API publish no ports at
+all.
+
+**7. First deploy by hand**, then decide on automatic deploys:
+
+- Go to **Actions → Deploy → Run workflow**, or run
+  `gh workflow run deploy.yml --ref main`.
+- Once a manual run has succeeded, set the repository variable
+  `DEPLOY_ON_PUSH` to `true`. From then on, every push to `main` deploys as
+  soon as its CI passes.
+
+Pick `main` in the Run workflow form. A run started on any other branch is
+skipped.
+
+### What a deployment does and verifies
+
+1. **Host checkout.** The run refuses to deploy if tracked files have been
+   edited on the host. It then runs `git fetch origin main` and
+   `git checkout main`, and checks that the target commit is in
+   `origin/main`'s history. If the host already runs a newer commit, it stops
+   successfully without changing anything. Otherwise it fast-forwards `main`
+   to exactly the target commit (`git merge --ff-only <sha>`). A diverged
+   history fails the run instead of being merged.
+2. **Preflight.** `.env.production` must exist, and the Compose file must
+   resolve with it, so a missing variable is caught before anything changes.
+3. **Rollback copy.** If the running api and web are both healthy, their images
+   are tagged `:prod-previous`. A stack that is already unhealthy never
+   overwrites the last good copy.
+4. **Build** both images on the host. **A build failure stops here, with the
+   running containers untouched.**
+5. **`docker compose up -d`.** Migrations run first. Only services whose image
+   or configuration changed are recreated. Never `down`: the site stays up
+   during the build, and volumes are never at risk.
+6. **Verification**, within 180 seconds:
+   - `api` and `web` report healthy
+   - the worker is running and has not restarted
+   - from the host, `GET /` and `GET /dashboard` return 200 with the app shell
+   - `GET /api/auth/me` returns 401 `unauthenticated`, which proves the path
+     host port → Nginx → API
+
+Any failure prints container status and recent logs of `migrate`, `api`,
+`worker` and `web`, and fails the run. These logs never contain secrets or
+request headers.
+
+Deployments never run in parallel, and a running one is never cancelled. A
+deploy triggered while another runs waits for it, then deploys its own commit,
+or skips it if the host already runs something newer.
+
+### When a deployment fails
+
+There is no automatic rollback yet. After step 5, a failure means some services
+may already run the new version.
+
+- **Preferred:** fix or revert the commit on `main`, then deploy again.
+- **Emergency, on the host:** return to the previous images without building:
+
+  ```bash
+  cd ~/api-watchdog
+  docker tag api-watchdog-api:prod-previous api-watchdog-api:prod
+  docker tag api-watchdog-web:prod-previous api-watchdog-web:prod
+  docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build
+  ```
+
+  This restores the code, not the database. A migration that already ran stays
+  applied, which is why migrations must remain backward-compatible.
+
+`bash scripts/deploy.sh` can also be run by hand on the host, from
+`~/api-watchdog`.
+
+### Current limitations
+
+- **Images are built on the EC2 host.** Each deploy spends the host's CPU and
+  memory on `npm ci` and compilation while it is also serving traffic. On a
+  small instance that is slow, and it can run out of memory.
+- **Manual runs skip the CI check** (see "CI → deploy"). Automatic deploys never
+  do.
+- **Brief API interruption.** Replacing the single api container can fail
+  requests for about a second.
+- **No HTTPS yet.** See the warning in "Production stack".
+- Port 22 is open to the internet, as described in step 6.
+
+### Future improvements
+
+- Build the images in GitHub Actions and push them to a registry (GHCR or ECR).
+  The host would then only pull and restart: faster, predictable, and no build
+  load on the server. Rollback becomes "run the previous tag".
+- A GitHub environment with required reviewers, for an approval step.
+- Replace inbound SSH with AWS Systems Manager, which closes port 22.

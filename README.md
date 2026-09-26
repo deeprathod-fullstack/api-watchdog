@@ -1,563 +1,545 @@
 # API Watchdog
 
-Register public HTTP endpoints, check them on a schedule, record every result,
-and open an incident when one starts failing.
+A small, self-hosted monitoring service for public HTTP APIs: it checks endpoints
+on a schedule, records every result, and opens an incident when an endpoint
+keeps failing.
 
-**Stack:** React + TypeScript (Vite) · Node.js + Express · PostgreSQL · Redis +
-BullMQ · npm workspaces.
+API Watchdog is a production-oriented API monitoring service that periodically
+checks public HTTP APIs, records health results, detects repeated failures as
+incidents, and shows service health through a dashboard.
 
-> This README covers local development, the production stack, and deployment
-> to EC2. API reference and screenshots are still to be written.
+**Stack:** React · TypeScript · Node.js · Express · PostgreSQL · Redis · BullMQ ·
+Docker · Nginx · GitHub Actions · AWS EC2
 
-## Prerequisites
+![API Watchdog dashboard](screenshots/01-dashboard.png)
 
-- **Docker** — Compose runs the whole stack.
-- **Node 24** — the version in `.nvmrc`. `nvm use` if you have nvm. Needed for
-  the tests, the linter and the migration scripts, which run on your host.
+## Why I built this
 
-## Setup
+I have spent years building full-stack applications. What I wanted to learn
+properly was everything that happens after the code works: running a system that
+does work in the background, keeps state it cannot lose, and gets from a
+commit to a server without someone copying files by hand.
 
-```bash
-npm install                 # installs all three workspaces
-cp .env.example .env        # local defaults; never commit this file
-cp apps/web/.env.example apps/web/.env.local
+A monitoring service turned out to be a good vehicle for that, because the core
+feature forces the hard parts:
+
+- **Background work and scheduling.** Checks have to run on a timer, outside
+  the request cycle, without one slow endpoint holding up the rest. That means
+  a queue (Redis + BullMQ) and a separate worker process.
+- **State that matters.** Check history and incidents live in PostgreSQL, with
+  migrations, and survive restarts and redeploys.
+- **Security as part of the feature.** "Fetch a URL a user gave us" is a
+  server-side request forgery (SSRF) engine by default. Defending against that
+  shaped the check pipeline from the start, not as a later hardening pass.
+- **Failure handling.** Timeouts, redirects, DNS failures, a worker killed
+  mid-check, Redis restarting, a deploy that doesn't come up healthy.
+- **Shipping it.** Docker images, a production Compose stack, CI on every
+  change, and a deployment workflow to AWS EC2 that deploys only commits that
+  passed CI.
+
+The scope is deliberately small (public `GET` endpoints, individual accounts, no
+teams), so that each of those pieces could be built completely rather than just
+started.
+
+## Features
+
+- **Accounts:** register, sign in, sign out. Every monitor, check and incident
+  belongs to one user, and nobody else can see or change it.
+- **Monitors** for public `GET` endpoints, each with:
+  - an expected HTTP status (default 200)
+  - a check interval
+  - a timeout
+  - up to 10 optional non-secret request headers
+- **Monitor management:** create, edit, pause/resume and delete.
+- **Manual check:** "Check now" runs a check immediately and shows the result.
+- **Scheduled checks:** run by a separate worker process through a BullMQ queue.
+- **Check history:** for each monitor, a paged record of every check, with
+  result, HTTP status, response time and a classified error (timeout, DNS,
+  connection refused, blocked address, status mismatch, …).
+- **Incidents:** opened after consecutive failures (3 by default), and resolved
+  by the next successful check. Each monitor has an incident history.
+- **Dashboard:**
+  - counts of monitors (total, active, healthy, failing) and of open incidents
+  - the open incidents
+  - each monitor's latest status, HTTP code and response time
+- **SSRF protection** on every outbound check. See [Security](#security).
+- **Rate limiting** on sign-in/registration, monitor creation and manual checks.
+- **Dockerized:** a hot-reloading development stack and a separate production
+  stack, both on Docker Compose.
+- **CI** on every pull request and every push to `main`: format check, lint,
+  type check, tests, builds.
+- **Automatic deployment to AWS EC2,** gated on CI passing for the exact commit
+  being deployed. It's implemented and verified end to end on the live
+  deployment.
+
+## Screenshots
+
+### Monitors
+
+![Monitors list](screenshots/02-monitors.png)
+
+### Adding a monitor
+
+![New monitor form](screenshots/03-add-monitor.png)
+
+### Check history
+
+A monitor that failed and then recovered. For this demo it first pointed at
+`https://httpbin.org/status/500` while expecting 200, and was then edited to
+`/status/200`; the page header shows the current target. Each row is one check:
+failures with the HTTP status that caused them, then successes.
+
+![Monitor check history](screenshots/04-monitor-history.png)
+
+### Incidents
+
+Incident history for the same monitor. The incident opened when the third
+consecutive failure was recorded, and its start time is the first failure of
+that run. It was resolved by the first successful check, after four failures in
+a row. While an incident is open it also appears on the dashboard, as in the
+screenshot at the top.
+
+![Incident history](screenshots/05-incidents.png)
+
+### Sign in and registration
+
+<p>
+  <img src="screenshots/06-login.png" alt="Sign-in page" width="49%">
+  <img src="screenshots/07-register.png" alt="Registration page" width="49%">
+</p>
+
+## Architecture
+
+```mermaid
+flowchart LR
+    browser["Browser<br/>(React app)"]
+
+    subgraph host["EC2 host · Docker Compose"]
+        web["web<br/>Nginx: static React build<br/>+ /api proxy"]
+        api["api<br/>Express"]
+        worker["worker<br/>BullMQ consumer"]
+        migrate["migrate<br/>one-shot, runs migrations"]
+        pg[("PostgreSQL")]
+        redis[("Redis<br/>BullMQ queue")]
+    end
+
+    targets["Public HTTP APIs<br/>(monitored endpoints)"]
+
+    browser -- "HTTP :80" --> web
+    web -- "/api/*" --> api
+    api --> pg
+    api -- "schedules" --> redis
+    redis -- "jobs" --> worker
+    worker --> pg
+    migrate --> pg
+    worker -- "scheduled checks<br/>(SSRF-guarded)" --> targets
+    api -- "manual checks<br/>(SSRF-guarded)" --> targets
 ```
 
-## Running it
+- **One origin.** The browser only talks to Nginx. Nginx serves the React build
+  and proxies `/api/*` to the Express API, so the API needs no CORS
+  configuration.
+- **The API owns requests and schedules.** It never runs scheduled checks.
+  Creating, editing, pausing or deleting a monitor updates its BullMQ job
+  scheduler in Redis.
+- **The worker runs the checks.** A slow or hostile endpoint then ties up the
+  worker, not the event loop serving the dashboard. The one exception is a
+  manual "Check now", which runs in the API so the result can be returned
+  immediately.
+- **PostgreSQL is the source of truth.** A job carries only a monitor id; the
+  worker reads the monitor from the database before checking it. On startup the
+  API reconciles the Redis schedules against PostgreSQL, so a flushed or
+  restarted Redis heals itself.
+- **Migrations run as their own service.** The one-shot `migrate` container
+  runs before the API and worker start, never from inside the API.
+
+### CI/CD
+
+```mermaid
+flowchart LR
+    push["git push main"] --> ci["CI workflow<br/>format · lint · typecheck<br/>tests · builds"]
+    ci -- "success, for commit X" --> deploy["Deploy workflow"]
+    deploy -- "SSH<br/>dedicated key<br/>pinned host key" --> ec2["EC2 host"]
+    ec2 --> ff["fast-forward checkout<br/>to exactly commit X"]
+    ff --> build["docker compose build"]
+    build --> up["docker compose up -d"]
+    up --> verify["health checks<br/>+ HTTP checks"]
+```
+
+## Tech stack
+
+| Area                  | Technology                                                      |
+| --------------------- | --------------------------------------------------------------- |
+| Frontend              | React 19, TypeScript, Vite, React Router                        |
+| Backend               | Node.js 24, Express 5, TypeScript                               |
+| Data                  | PostgreSQL 16 (`pg`, `node-pg-migrate`), Redis 7 (`ioredis`)    |
+| Background processing | BullMQ                                                          |
+| Validation and auth   | Zod, bcrypt, JSON Web Tokens, express-rate-limit                |
+| Infrastructure        | Docker, Docker Compose, Nginx, AWS EC2                          |
+| CI/CD                 | GitHub Actions                                                  |
+| Testing               | Vitest, Supertest, React Testing Library, jsdom                 |
+| Tooling               | npm workspaces, ESLint, Prettier                                |
+
+## How it works
+
+1. **A user creates a monitor.** The request body is validated with Zod.
+   Unknown fields are rejected, and the URL goes through a static guard:
+   `http`/`https` only, default ports only, no embedded credentials, and a
+   length limit.
+2. **The API stores it and schedules it.** The monitor is written to
+   PostgreSQL, and a BullMQ job scheduler keyed by the monitor's id is created
+   in Redis, repeating at the monitor's interval. Edits update the scheduler,
+   and pausing or deleting removes it.
+3. **The worker receives a job.** It carries only the monitor id, so the worker
+   reloads the monitor from PostgreSQL and skips it if it was paused or deleted
+   in the meantime.
+4. **The worker performs a guarded check.**
+   - The hostname is resolved, and every address must be public.
+   - The connection is pinned to the address that was approved.
+   - Each redirect is validated again.
+   - The response body is never read.
+
+   See [Security](#security) for the details.
+5. **The result is recorded.** Status, HTTP status, response time and a
+   classified error are written in the same database transaction as any
+   incident change, so a check and its incident transition can't disagree.
+6. **Repeated failures open an incident.** Once the number of consecutive
+   failures reaches the threshold (3 by default), an incident opens. The count
+   is recomputed from stored checks rather than incremented, so a redelivered
+   job can't inflate it.
+7. **A success resolves it.** The first successful check closes the open
+   incident.
+8. **The dashboard reads the results.** It shows current health, open
+   incidents and each monitor's latest check. The history page shows every
+   check and incident for one monitor.
+
+## Security
+
+The core feature makes an HTTP request to any URL a user types in. Without
+care, that turns the server into a proxy into its own network (SSRF): cloud
+metadata endpoints, databases, other containers. Most of the security work is
+about that.
+
+**Outbound checks (SSRF)**
+
+- **Scheme and port allowlist:** `http` on port 80 and `https` on port 443,
+  nothing else. URLs containing a username or password are rejected.
+- **Addresses are validated after DNS resolution, against an allowlist.**
+  Every resolved address must fall in a range recognised as public unicast.
+  Everything else is refused, IPv4 and IPv6 alike:
+  - private, loopback and link-local (which includes `169.254.169.254`, the
+    cloud metadata endpoint)
+  - carrier-grade NAT, documentation, benchmarking, multicast and reserved
+    ranges
+  - IPv4-mapped IPv6 addresses
+
+  An address the rules don't recognise is refused, not allowed.
+- **Hostnames are never judged by name.** An attacker's own domain can resolve
+  to `10.0.0.5`, so only the resolved address counts. Inside Docker, service
+  names such as `postgres` or `redis` resolve to private addresses and are
+  blocked for that reason.
+- **Connection pinning.** The socket connects to the exact address that passed
+  validation, through the resolver hook, so a DNS answer that changes between
+  check and connect (DNS rebinding) cannot redirect it. Connection reuse is off,
+  so a pooled socket can't carry a request to the wrong host.
+- **Redirects are re-validated.** At most 3 are followed, and each hop goes
+  through the same URL and address checks.
+- **Resource limits:**
+  - one timeout covers the whole check, redirects included
+  - response headers are capped by size and count
+  - the response body is never read and never stored
+  - TLS certificate verification is never relaxed
+- **No permissive mode.** No configuration flag or environment variable can
+  weaken these rules, in any environment.
+
+**Request headers**
+
+- Monitors may carry non-secret headers only. `Authorization`,
+  `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key` and `Api-Key` are
+  rejected when a monitor is saved.
+- Names must be valid header tokens, and values printable ASCII with no CR/LF,
+  which prevents header injection. There are at most 10 per monitor.
+- `Host`, `User-Agent` and `Accept-Encoding` are always set by the client and
+  cannot be overridden.
+- Header values are never logged, and validation errors name the header, never
+  its value.
+
+**Accounts and access**
+
+- **Passwords:** hashed with bcrypt (cost 12) and never stored or logged in
+  plain text.
+- **Sign-in:** does the same bcrypt work for unknown emails, so neither the
+  error nor the response time reveals which emails are registered.
+- **Tokens:** HS256 JWTs that expire after 24 hours. The signing secret must be
+  at least 32 characters, or the API refuses to start.
+- **Ownership is checked on every resource.** Every monitor query is scoped to
+  the signed-in user. Another user's monitor is indistinguishable from one that
+  doesn't exist (404).
+- **Rate limits:**
+  - sign-in and registration: 10 per 15 minutes per IP
+  - monitor creation: 30 per 15 minutes per IP
+  - manual checks: 10 per 5 minutes per user
+
+  Behind Nginx, Express trusts exactly one proxy hop, so limits apply to the
+  real client address and a spoofed `X-Forwarded-For` doesn't help.
+- **Other limits:** request bodies are capped at 100 KB, and each user can own
+  at most 20 monitors.
+
+**Configuration and deployment**
+
+- **Secrets:** all configuration comes from environment variables and is
+  validated at startup. `.env` files are gitignored and kept out of Docker
+  images. Production secrets exist only on the server.
+- **Containers:** the application containers (API, worker, migrations and
+  Nginx) run as non-root users. In production only
+  Nginx publishes a port; the API, PostgreSQL and Redis are reachable only
+  inside the Docker network.
+- **Deployment access:** deployment uses a dedicated SSH key and a pinned host
+  key. GitHub holds no AWS credentials.
+
+Tests exercise these rules with real attack inputs: private and metadata
+addresses, redirects to internal hosts, rebinding-style DNS answers, forbidden
+headers, and cross-user access.
+
+## Local development
+
+**Prerequisites:** Docker with Compose, and Node.js 24 (the version in `.nvmrc`)
+for running tests, linting and migrations from the host.
 
 ```bash
+npm install
+cp .env.example .env                           # local defaults; never commit it
+cp apps/web/.env.example apps/web/.env.local
 docker compose up -d --build
 ```
 
 Open <http://localhost:5173> and register an account.
 
-That starts five services: PostgreSQL, Redis, the API, the background worker,
-and the frontend dev server. A sixth, `migrate`, runs the migrations and exits
-before the API starts, so a fresh clone needs no separate schema step.
+`docker compose up` starts PostgreSQL, Redis, the API, the worker and the Vite
+dev server, with hot reload. A one-shot `migrate` service applies the database
+migrations before the API and worker start, so a fresh clone needs no separate
+schema step.
 
 ```bash
-docker compose logs -f api worker    # follow the interesting ones
-docker compose ps                    # what is up, and is it healthy
+docker compose ps                     # service status and health
+docker compose logs -f api worker     # follow the API and worker
+docker compose down                   # stop; the database volume is kept
+docker compose down -v                # stop and delete the database
 ```
 
-The API and worker are separate processes on purpose: a slow or failing
-outbound check must never occupy a request thread. They are the same image with
-a different command — same code, same dependencies, one thing to build. Without
-the worker the app still runs, but nothing is checked on a schedule; only
-"Check now" works.
-
-The frontend container runs the Vite dev server with your `apps/web` directory
-mounted, so editing a file hot-reloads exactly as it does on the host. It
-proxies `/api` to the API container, so the browser talks to a single origin and
-the API needs no CORS configuration. That is why `VITE_API_BASE_URL` is empty.
-Production keeps it empty too, with the same single-origin setup: see
-[Production frontend image](#production-frontend-image).
-
-### Running on the host instead
-
-The application still runs directly on your machine, which is a faster edit loop
-if you are working on one service and want nothing between you and it.
+**Running the apps on the host instead** (faster edit loop), with only the
+databases in Docker:
 
 ```bash
-docker compose up -d postgres redis   # backing services only
-npm run db:migrate                    # the migrate container is not running now
-npm run dev                           # API on http://localhost:3000
-npm run dev:worker                    # background worker
-npm run dev:web                       # frontend on http://localhost:5173
+docker compose up -d postgres redis
+npm run db:migrate
+npm run dev              # API on http://localhost:3000
+npm run dev:worker       # background worker
+npm run dev:web          # frontend on http://localhost:5173
 ```
 
-This works because `.env` points `DATABASE_URL` and `REDIS_URL` at `localhost`,
-reaching PostgreSQL and Redis through their published ports. Containers cannot
-use those URLs — inside a container `localhost` is the container itself — so
-`docker-compose.yml` overrides just those two variables with the `postgres` and
-`redis` hostnames. One env file; the difference lives in one place.
+Don't run the containerised and host versions at the same time. Two workers
+would consume the same queue, and two APIs would both try to bind port 3000.
 
-Do not run both at once. Two workers would consume the same queue, and two APIs
-would both try to bind port 3000.
+Every environment variable is declared and validated in
+`packages/shared/src/config.ts`, and the application refuses to start if one is
+missing or malformed. `.env.example` documents them.
+
+**Checks:**
 
 ```bash
-npm run db:check            # → Connected to database: api_watchdog
+npm run verify           # format check, lint, type check and all tests (CI also runs both builds)
+npm test                 # tests only
+npm run build            # compile the shared package and the API
+npm run build:web        # production frontend bundle
 ```
 
-## Production stack
+The backend tests need PostgreSQL and Redis from Compose, but they use their own
+database (the development database name with a `_test` suffix, created and
+migrated automatically) and their own Redis key prefix. Your development data is
+never touched.
 
-`docker-compose.prod.yml` runs the whole system the way it runs in production:
-a static frontend behind Nginx, compiled Node processes, no dev servers, no
-source mounts, and exactly one published port. It runs locally the same way it
-will run on the server.
+## Production deployment
 
-> **HTTPS is required before real public use.** This stack serves plain HTTP.
-> Login sends a password and every API call carries a bearer token, and over
-> HTTP anyone on the network path can read both. Loopback-only local testing is
-> fine; a public deployment is not, until TLS is in front of it.
-
-### Architecture
+Production runs `docker-compose.prod.yml` on a single EC2 instance:
 
 ```
-Browser
-  │  http://127.0.0.1:8080 locally  ·  port 80 on EC2
-  ▼
-web  (Nginx, :8080) ─── the only published port
-  ├── /        → React static files (SPA fallback to index.html)
-  └── /api/*   → api:3000
-                   │
-                   ├──▶ postgres:5432   (data: named volume)
-                   └──▶ redis:6379      (queue: named volume, AOF)
-                             ▲
-worker ──────────────────────┘  consumes check jobs, writes results to postgres
-
-migrate  runs the migrations once, exits, and api + worker start only after it
-         succeeds
+Browser ──HTTP :80──▶ EC2 ──▶ web (Nginx) ──┬── /       static React build
+                                            └── /api/*  api ──▶ PostgreSQL, Redis ◀── worker
 ```
 
-The browser only ever talks to Nginx. The frontend keeps making the same
-relative `/api/...` requests as in development, so there is no separate API
-origin and the API needs no CORS configuration.
+- **web:** Nginx serves the static frontend build and proxies `/api`. It's the
+  only container with a published port. The image is a multi-stage build, so
+  Node and the source never ship in it.
+- **api** and **worker:** the same image, compiled TypeScript run with `node`
+  directly, so shutdown signals reach the process and in-flight requests and
+  checks drain on redeploy.
+- **migrate:** runs pending migrations once per deployment, before the API and
+  worker start. A failed migration stops the rollout.
+- **PostgreSQL:** data lives in a named Docker volume.
+- **Redis:** append-only-file persistence on a volume, so job schedules survive
+  a Redis restart.
+- **Health checks:** PostgreSQL, Redis, the API (`/health`) and Nginx have
+  Docker health checks. Services start in dependency order and wait for health.
+- **Secrets:** a server-only `.env.production`, never in Git and never in an
+  image. Container logs are rotated.
 
-### Development vs production Compose
+**HTTPS is not currently enabled in the demo deployment.** The application is
+intentionally HTTP-only for the current portfolio deployment; HTTPS is a
+planned hardening step.
 
-|                  | `docker-compose.yml` (development) | `docker-compose.prod.yml` (production)  |
-| ---------------- | ---------------------------------- | --------------------------------------- |
-| Compose project  | `api-watchdog`                     | `api-watchdog-prod`                     |
-| Frontend         | Vite dev server, HMR, source mount | Nginx serving the static build          |
-| Published ports  | 5173, 3000, 5432, 6379 (loopback)  | **8080 only** (web)                     |
-| Env file         | `.env` (host-facing URLs)          | `.env.production` (secrets only)        |
-| Image tags       | `:dev`                             | `:prod`                                 |
-| Redis            | in memory                          | AOF persistence on a volume             |
-| Log files        | Docker default (unbounded)         | rotated: 3 × 10 MB per container        |
-| Env per service  | whole `.env` to every app service  | only the variables each service needs   |
+The same production stack runs locally: `npm run prod:up`, then
+<http://127.0.0.1:8080>. The full operational guide covers the production
+environment file, networking, migrations, Redis persistence, one-time EC2 and
+SSH setup, and rollback. It's in **[docs/deployment.md](docs/deployment.md)**.
 
-The project name prefixes every container, network and volume, so the two
-stacks share nothing — not even the database volume — and can run side by
-side.
+## CI/CD
 
-### Environment
+CI-gated automatic deployment to AWS EC2 is implemented and has been verified
+end to end: a push to `main` passes CI, and the tested commit is deployed to the
+EC2 instance and health-checked, with no manual step.
 
-```bash
-cp .env.production.example .env.production
-```
+- **CI** (`.github/workflows/ci.yml`) runs on every pull request and every push
+  to `main`, against real PostgreSQL and Redis service containers: format check,
+  lint, type check, the full test suite, the backend build and the frontend
+  build.
+- **Deploy** (`.github/workflows/deploy.yml`) is triggered by CI finishing, not
+  by the push. It deploys only when CI succeeded for a push to `main`, and it
+  deploys **exactly the commit CI tested**. If a newer commit landed in the
+  meantime, it waits for its own CI run.
+- **How deployment reaches the server:**
+  - The runner connects over SSH with a **dedicated deployment key**. That key is
+    separate from the key the server uses to pull from GitHub.
+  - The server's **host key is pinned**, so the runner refuses to connect to
+    anything else.
+  - GitHub holds **no AWS credentials**, and `.env.production` never leaves the
+    server.
+- **On the server,** `scripts/deploy.sh`:
+  - fast-forwards the checkout to the tested commit, and never moves backwards
+  - builds the images, then runs `docker compose up -d`. It never runs `down`,
+    so the site stays up during the build, and volumes are never touched.
+  - fails the run unless, within 180 seconds, the API and web report healthy,
+    the worker stays up, `/` returns 200 and `/api/auth/me` returns 401
+  - on failure, prints container status and recent logs
+  - keeps the previous healthy images tagged for a manual rollback. There is no
+    automatic rollback.
+- **Switching automatic deploys on or off** takes one repository variable
+  (`DEPLOY_ON_PUSH`). It's on for this deployment. A manual run from the Actions
+  tab is always available.
 
-Then replace every placeholder:
+## Database backups
 
-- `POSTGRES_PASSWORD`: `openssl rand -hex 32`. Hex because the password is
-  embedded in `DATABASE_URL`, where `@ / : #` would break the URL.
-- `JWT_SECRET`: `openssl rand -base64 48`. Never reuse a development value.
-- `WEB_BIND` / `WEB_PORT`: `127.0.0.1` / `8080` locally; `0.0.0.0` / `80` on
-  EC2.
+No automated backup is set up yet. PostgreSQL data lives in a Docker volume on
+the EC2 instance's disk, so losing the instance or its volume loses the data.
+Backups are an open item (see [Known limitations](#known-limitations)).
 
-`.env.production` is gitignored and never enters an image (`.dockerignore`
-excludes it). It holds only what differs per deployment: `DATABASE_URL`,
-`REDIS_URL`, `NODE_ENV=production` and `PORT` are set in the Compose file and
-point at the internal service names, never at localhost. A missing value stops
-`docker compose` with an error naming it, before anything starts.
-
-`POSTGRES_USER` / `POSTGRES_PASSWORD` only take effect when the database volume
-is first created. Changing them later does not change an existing database.
-
-### Running it
-
-Always through the npm scripts. Each one passes `docker-compose.prod.yml` and
-`--env-file .env.production` explicitly. Without `--env-file`, Compose would
-silently read the development `.env` instead, with development credentials.
-
-```bash
-npm run prod:up             # build images, then start everything in the background
-npm run prod:ps             # status and health of each service
-npm run prod:logs           # all logs; add -- -f api worker to follow two
-npm run prod:down           # stop and remove containers; volumes (data) are kept
-```
-
-Then open <http://127.0.0.1:8080>. A quick end-to-end check of the proxy:
-
-```bash
-curl -i http://127.0.0.1:8080/api/auth/me
-# 401 {"error":{"code":"unauthenticated",...}} — Express answered via Nginx
-```
-
-To delete the production database too, remove the volumes explicitly:
-`docker compose -f docker-compose.prod.yml --env-file .env.production down -v`.
-
-### Migrations
-
-The one-shot `migrate` service runs `npm run db:migrate` from the API image,
-after PostgreSQL is healthy. `api` and `worker` start only once it has **exited
-successfully**. The API never migrates on startup: replicas would race, and a
-bad migration would turn into a restart loop instead of one readable failure.
-
-It runs on every `prod:up`. With nothing pending it prints
-`No migrations to run!` and exits at once. If a migration fails, api and worker
-stay down, and `npm run prod:logs -- migrate` shows why.
-
-While `migrate` runs during a redeploy, the previous api container may still be
-serving. Migrations must therefore stay backward-compatible with the release
-before them: add a column in one release, drop the old one in a later one.
-
-### Internal networking and the `/api` proxy
-
-Compose puts every service on one private network and makes each service name a
-hostname on it. The api reaches `postgres:5432` and `redis:6379`, and Nginx
-reaches `api:3000`. Only `web` publishes a port. The API, PostgreSQL and Redis
-cannot be reached from the host at all; for a database shell use
-`docker compose -f docker-compose.prod.yml --env-file .env.production exec postgres psql -U watchdog api_watchdog`.
-
-`apps/web/nginx.conf` proxies `/api/*` to `http://api:3000`, keeping the full
-path (Express mounts its routes under `/api`), and sets `Host`,
-`X-Forwarded-For` and `X-Forwarded-Proto`. The upstream is resolved through
-Docker's DNS at `127.0.0.11` on every request, re-checked every 10 seconds,
-rather than once at startup. That has two effects:
-
-- recreating the api container, which gives it a new IP, never leaves Nginx
-  sending traffic to the old address;
-- the image still starts on its own, outside Compose. There, `/api/*` returns
-  502 (after a 5-second resolver timeout) and the static site works normally.
-
-Express is configured with `trust proxy = 1`. It believes exactly one proxy hop
-— Nginx — and takes the client address from the entry Nginx appends to
-`X-Forwarded-For`, ignoring anything the client wrote there itself. Without it,
-every request would appear to come from Nginx, and the per-IP login limit would
-become one bucket for everybody. This is only safe because nothing can reach the
-API except through Nginx; a load balancer in front would make it `2`.
-
-### Redis persistence (AOF)
-
-Redis is not a source of truth here. Jobs carry only a monitor id, and the
-worker reads the monitor back from PostgreSQL. But the API rebuilds schedules
-from PostgreSQL **only when the API starts**. Without persistence, a restart of
-Redis alone would drop every schedule, and nothing would be checked until
-someone restarted the API. With `--appendonly yes` and a volume, schedules
-survive a Redis restart. Eviction stays at Redis's default, `noeviction`, which
-BullMQ requires.
-
-### Shutdown
-
-`npm run prod:down` sends SIGTERM to each container:
-
-- The API drains in-flight requests. It has 15s before Docker force-kills it;
-  its own timeout is 10s.
-- The worker finishes checks already running. It has 35s; its own timeout is
-  30s.
-- Nginx is stopped with SIGQUIT, its graceful shutdown.
-
-Data lives in the `api-watchdog-prod_postgres_data` and
-`api-watchdog-prod_redis_data` volumes, which `down` keeps.
-
-### The production frontend image
-
-`apps/web/Dockerfile.prod` is a **multi-stage build**. The first stage starts
-from Node, runs `npm ci`, then `npm run build:web`, which writes the static
-bundle to `apps/web/dist`. The second stage starts again from a clean
-`nginx-unprivileged` image and copies in only that `dist/` directory and
-`apps/web/nginx.conf`. Only the last stage becomes the image. Node, npm,
-`node_modules` and the source are all left behind in the build stage, which
-brings the image down from about 780 MB to about 80 MB. Nginx runs as a
-non-root user on port 8080.
-
-Besides the proxy, `nginx.conf` handles:
-
-- **SPA fallback.** A path that is not a real file (`/login`, `/dashboard`,
-  `/monitors/42/history`, …) gets `index.html`, so a refresh or a pasted link
-  reaches React Router instead of an Nginx 404.
-- **Caching.** Files under `/assets/` have content hashes in their names and are
-  cached for a year. `index.html` is never cached, so a new deploy is picked up
-  straight away. A missing asset is a real 404, never HTML.
-
-The image can still be tested on its own, without the rest of the stack:
-
-```bash
-docker build -f apps/web/Dockerfile.prod -t api-watchdog-web:prod .
-docker run --rm -p 127.0.0.1:8080:8080 api-watchdog-web:prod
-```
-
-Pages and client-side routes work. `/api/*` returns 502 after the resolver's
-5-second timeout, because outside Compose there is no Docker DNS and no API.
-
-## Deployment (EC2 via GitHub Actions)
-
-Production runs the stack above on one EC2 host (Amazon Linux 2023), from a
-clone of this repository at `~/api-watchdog`. The workflow
-`.github/workflows/deploy.yml` deploys `main` commits that have passed CI to
-it, over SSH.
+## Project structure
 
 ```
-push to main ──▶ CI (ci.yml) ── passed for commit abc123 ──┐
-                                                           ├─▶ Deploy (deploy.yml), for exactly abc123
-manual run (Actions tab, on main) ─────────────────────────┘
-  │
-  ▼
-GitHub Actions runner ── SSH, dedicated key, pinned host key ──▶ EC2 (ec2-user)
-  (holds no code, no AWS credentials)                              │
-                                                                   ├─ git fetch origin main
-                                                                   │  fast-forward main to abc123
-                                                                   │    (host's own read-only deploy key)
-                                                                   └─ bash scripts/deploy.sh
-                                                                        build images on the host
-                                                                        docker compose up -d
-                                                                        wait for health, check HTTP
+apps/
+  api/                 Express API and BullMQ worker (TypeScript)
+    src/checks/        SSRF guard, safe DNS resolution, HTTP client, check runner
+    src/incidents/     incident open/resolve logic
+    src/queue/         BullMQ queue, schedulers, startup reconciliation
+    src/monitors/      monitor routes, validation, repository
+    src/auth/          registration, sign-in, password hashing, tokens
+    src/index.ts       API entry point
+    src/worker.ts      worker entry point
+    test/              integration and unit tests
+    Dockerfile         image for the API, worker and migrations
+  web/                 React frontend (Vite)
+    src/               routes, features, components
+    test/              component and routing tests
+    Dockerfile         development image (Vite dev server)
+    Dockerfile.prod    production image (static build served by Nginx)
+    nginx.conf         SPA fallback, caching, /api proxy
+packages/shared/       environment loading and validation
+migrations/            database migrations (node-pg-migrate)
+scripts/deploy.sh      build, roll out and verify on the production host
+docs/deployment.md     production stack and deployment guide
+.github/workflows/     ci.yml, deploy.yml
+docker-compose.yml     development stack
+docker-compose.prod.yml  production stack
 ```
 
-The runner never checks out the code and has no GitHub token permissions. It
-opens one SSH session. The host fast-forwards its checkout to the commit being
-deployed, then runs the `scripts/deploy.sh` from that commit, so a change to
-the script ships with the deploy that uses it. `.env.production` exists only on
-the host and never passes through GitHub. No AWS credentials are involved.
+## Testing
 
-### CI → deploy
+The suite runs with [Vitest](https://vitest.dev/), with `npm test` locally and
+on every CI run.
 
-An automatic deploy is triggered **by CI finishing**, not by the push. Deploy
-listens for CI's `workflow_run` event, which carries CI's result and the exact
-commit CI tested.
+- **Backend:**
+  - integration tests drive the real Express app through Supertest, against
+    real PostgreSQL and Redis
+  - authentication, per-user ownership boundaries, monitor CRUD, scheduling,
+    the worker, incidents, the dashboard and history
+- **Security-sensitive units:**
+  - URL guard, IP classification, safe DNS resolution
+  - the HTTP client, against local test servers: redirects, timeouts, oversized
+    headers, blocked addresses
+  - rate limiting and proxy trust
+- **Frontend:** React Testing Library tests for authentication flows, routing
+  and guards, the dashboard, monitor forms and lists, and history pages.
 
-- **When it runs.** The deploy job runs only if all of these hold, and is
-  skipped otherwise:
-  - `DEPLOY_ON_PUSH` is `true`;
-  - CI **succeeded**, not failed, cancelled or skipped;
-  - that CI run was for a **push to `main` of this repository**.
+## Known limitations
 
-  CI also runs on pull requests, and a fork's pull request can have a branch
-  named `main`. The event and repository checks make sure neither can trigger
-  a deploy.
-- **What it deploys: exactly the commit CI tested,** not whatever `main` points
-  to by then. If commit B is pushed while CI is still testing commit A, A's
-  green result deploys A. B deploys only once its own CI passes. The host
-  fast-forwards to that commit and first checks that it is in `main`'s history.
-- **Results can arrive out of order.** If A's result arrives after B has already
-  been deployed, the host sees it already runs something newer and does nothing.
-  It never goes backwards.
+- **HTTP only.** HTTPS is not enabled in the demo deployment yet.
+- **Single EC2 instance,** with PostgreSQL and Redis running in the same Docker
+  Compose stack rather than as managed services.
+- **No automated database backups.**
+- **Images are built on the EC2 host** during each deployment, rather than
+  pulled from a registry.
+- **No automatic rollback.** A failed deployment is reported, and rollback is a
+  manual step.
+- **Monitoring scope:** public endpoints only, and `GET` only. Authenticated
+  APIs can't be monitored, by design in V1.
+- **Checks run from one location.** There is no multi-region monitoring.
+- **No notifications:** no email, Slack or webhooks. Incidents are visible in
+  the dashboard only.
+- **Fixed incident threshold.** It is 3 consecutive failures by default, and is
+  not yet configurable per monitor from the UI.
+- **Rate limits are in memory,** per API process. That's correct for the single
+  API instance deployed today, but they would not be shared across replicas.
 
-So a commit reaches production automatically only after CI passed for **that
-exact commit**. CI itself is unchanged; Deploy only reads its result.
+## Future improvements
 
-**Manual runs are the exception.** **Actions → Deploy → Run workflow**, on
-`main`, deploys the `main` commit it was started on without checking CI. That
-is on purpose: it is the operator's override, for example to redeploy after
-fixing something on the host. Check that CI is green for that commit before
-using it for new code.
+These are ideas, not current features:
 
-### Two SSH keys, two directions
+- HTTPS in front of the deployment
+- automated PostgreSQL backups, and possibly a managed database (Amazon RDS)
+- building images in CI and deploying from a container registry
+- deploying through AWS Systems Manager instead of inbound SSH
+- uptime percentages and response-time charts
+- notifications (email, Slack, webhooks)
+- monitoring authenticated APIs, with encrypted secret storage
+- public status pages
+- centralised logs and metrics
+- checks from multiple regions
 
-| Key                     | Direction              | Lives                                                | Can do                       |
-| ----------------------- | ---------------------- | ---------------------------------------------------- | ---------------------------- |
-| EC2 GitHub deploy key   | EC2 → GitHub           | private key on EC2; public key in the repo's Deploy keys (read-only) | fetch this repository        |
-| GitHub Actions deploy key | GitHub Actions → EC2 | private key in the `EC2_SSH_PRIVATE_KEY` secret; public key in EC2 `~/.ssh/authorized_keys` | log in to EC2 as `ec2-user` |
+## What I learned
 
-They are deliberately separate. Each can be revoked without breaking the other,
-and a leak of one grants only its own direction. The Actions key is used for
-nothing else.
+- **Asynchronous work belongs outside the request path.** Splitting the API from
+  the worker, with a queue between them, made slow checks harmless to the
+  dashboard.
+- **Queues need a source of truth.** Keeping PostgreSQL authoritative and
+  treating Redis schedules as derived data meant a lost Redis could be rebuilt,
+  not mourned.
+- **SSRF is a design problem, not a filter.** Validating the resolved address,
+  pinning the connection to it and re-checking every redirect is what actually
+  closes the holes that hostname checks leave open.
+- **Docker and Compose,** from development images with hot reload to
+  multi-stage production images and a stack where only one port is public.
+- **Health checks are what make automation safe.** Startup ordering, deployment
+  verification and failure reporting all depend on each service being able to
+  say whether it's working.
+- **CI/CD end to end:** from a push, through CI, to a deploy that ships only the
+  tested commit to a real AWS server.
+- **Persistence and failure modes:** volumes, migrations that run once, graceful
+  shutdown, and deciding what happens when a deploy fails halfway.
 
-**Treat the Actions key as root on the host.** `ec2-user` is in the `docker`
-group, and Docker access is equivalent to root. Anyone who holds that key can
-do anything on the machine.
+## License
 
-### Repository secrets and variable
+Released under the [MIT License](LICENSE).
 
-Set under **Settings → Secrets and variables → Actions**. Values never go in Git.
+## Author
 
-| Name                  | Kind     | Value                                                                        |
-| --------------------- | -------- | ---------------------------------------------------------------------------- |
-| `EC2_HOST`            | secret   | the EC2 public IP or DNS name, exactly as written in `EC2_KNOWN_HOSTS`       |
-| `EC2_USER`            | secret   | `ec2-user`                                                                   |
-| `EC2_SSH_PRIVATE_KEY` | secret   | the whole private key file, including the `BEGIN` / `END` lines              |
-| `EC2_KNOWN_HOSTS`     | secret   | the host's public key line, captured on the host (step 3 below)              |
-| `DEPLOY_ON_PUSH`      | variable | `true` to deploy each `main` commit automatically once CI passes for it; unset means manual only |
-
-The workflow checks that all four secrets are set, and fails with the missing
-name if one isn't.
-
-### One-time setup
-
-**1. Create the GitHub Actions key pair** on your own machine, not on EC2:
-
-```bash
-ssh-keygen -t ed25519 -N "" -C "github-actions-deploy@api-watchdog" -f ./gha_deploy_key
-```
-
-This creates `gha_deploy_key` (private) and `gha_deploy_key.pub` (public). The
-key has no passphrase because the workflow cannot type one. The GitHub secret
-store is what protects it.
-
-**2. Authorize it on EC2.** Over your existing SSH session, append the public
-key to `~/.ssh/authorized_keys` with the `restrict` prefix. That disables port,
-agent and X11 forwarding and terminal allocation for this key. Running commands
-still works, and that is all the workflow needs.
-
-```bash
-# on EC2, pasting the one line from gha_deploy_key.pub:
-echo 'restrict ssh-ed25519 AAAA...your-public-key... github-actions-deploy@api-watchdog' >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-```
-
-Do not reuse the host's existing GitHub deploy key, and do not add
-`gha_deploy_key.pub` to GitHub.
-
-**3. Capture the host key on the host itself**, for `EC2_KNOWN_HOSTS`:
-
-```bash
-# on EC2, replacing <EC2_HOST> with the exact value you will put in EC2_HOST:
-echo "<EC2_HOST> $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
-```
-
-Reading it from the host over a session you already trust is the point. Running
-`ssh-keyscan` from elsewhere would record whatever answered at that address. The
-workflow connects with `StrictHostKeyChecking=yes`, so it refuses any host that
-does not present exactly this key.
-
-**4. Check the key works** from your machine:
-
-```bash
-ssh -i ./gha_deploy_key -o IdentitiesOnly=yes ec2-user@<EC2_HOST> 'cd ~/api-watchdog && git status -sb'
-```
-
-The output should show `## main...origin/main` and no modified files.
-
-**5. Store the secrets.** Add them as described above, pasting the whole content
-of `gha_deploy_key` into `EC2_SSH_PRIVATE_KEY`. Then **delete the local private
-key file**: GitHub now holds the only copy you need, and a replacement is one
-`ssh-keygen` away.
-
-**6. Security group.** SSH (port 22) must be reachable from GitHub-hosted
-runners. Their addresses are many and they change, so in practice port 22 is
-open to the internet and the protection is key-only authentication. Confirm on
-the host that password login is off: `sudo sshd -T | grep -i passwordauthentication`
-must print `passwordauthentication no`. Port 80 is the only other
-inbound rule the stack needs. PostgreSQL, Redis and the API publish no ports at
-all.
-
-**7. First deploy by hand**, then decide on automatic deploys:
-
-- Go to **Actions → Deploy → Run workflow**, or run
-  `gh workflow run deploy.yml --ref main`.
-- Once a manual run has succeeded, set the repository variable
-  `DEPLOY_ON_PUSH` to `true`. From then on, every push to `main` deploys as
-  soon as its CI passes.
-
-Pick `main` in the Run workflow form. A run started on any other branch is
-skipped.
-
-### What a deployment does and verifies
-
-1. **Host checkout.** The run refuses to deploy if tracked files have been
-   edited on the host. It then runs `git fetch origin main` and
-   `git checkout main`, and checks that the target commit is in
-   `origin/main`'s history. If the host already runs a newer commit, it stops
-   successfully without changing anything. Otherwise it fast-forwards `main`
-   to exactly the target commit (`git merge --ff-only <sha>`). A diverged
-   history fails the run instead of being merged.
-2. **Preflight.** `.env.production` must exist, and the Compose file must
-   resolve with it, so a missing variable is caught before anything changes.
-3. **Rollback copy.** If the running api and web are both healthy, their images
-   are tagged `:prod-previous`. A stack that is already unhealthy never
-   overwrites the last good copy.
-4. **Build** both images on the host. **A build failure stops here, with the
-   running containers untouched.**
-5. **`docker compose up -d`.** Migrations run first. Only services whose image
-   or configuration changed are recreated. Never `down`: the site stays up
-   during the build, and volumes are never at risk.
-6. **Verification**, within 180 seconds:
-   - `api` and `web` report healthy
-   - the worker is running and has not restarted
-   - from the host, `GET /` and `GET /dashboard` return 200 with the app shell
-   - `GET /api/auth/me` returns 401 `unauthenticated`, which proves the path
-     host port → Nginx → API
-
-Any failure prints container status and recent logs of `migrate`, `api`,
-`worker` and `web`, and fails the run. These logs never contain secrets or
-request headers.
-
-Deployments never run in parallel, and a running one is never cancelled. A
-deploy triggered while another runs waits for it, then deploys its own commit,
-or skips it if the host already runs something newer.
-
-### When a deployment fails
-
-There is no automatic rollback yet. After step 5, a failure means some services
-may already run the new version.
-
-- **Preferred:** fix or revert the commit on `main`, then deploy again.
-- **Emergency, on the host:** return to the previous images without building:
-
-  ```bash
-  cd ~/api-watchdog
-  docker tag api-watchdog-api:prod-previous api-watchdog-api:prod
-  docker tag api-watchdog-web:prod-previous api-watchdog-web:prod
-  docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build
-  ```
-
-  This restores the code, not the database. A migration that already ran stays
-  applied, which is why migrations must remain backward-compatible.
-
-`bash scripts/deploy.sh` can also be run by hand on the host, from
-`~/api-watchdog`.
-
-### Current limitations
-
-- **Images are built on the EC2 host.** Each deploy spends the host's CPU and
-  memory on `npm ci` and compilation while it is also serving traffic. On a
-  small instance that is slow, and it can run out of memory.
-- **Manual runs skip the CI check** (see "CI → deploy"). Automatic deploys never
-  do.
-- **Brief API interruption.** Replacing the single api container can fail
-  requests for about a second.
-- **No HTTPS yet.** See the warning in "Production stack".
-- Port 22 is open to the internet, as described in step 6.
-
-### Future improvements
-
-- Build the images in GitHub Actions and push them to a registry (GHCR or ECR).
-  The host would then only pull and restart: faster, predictable, and no build
-  load on the server. Rollback becomes "run the previous tag".
-- A GitHub environment with required reviewers, for an approval step.
-- Replace inbound SSH with AWS Systems Manager, which closes port 22.
-
-## Checks
-
-```bash
-npm run verify              # format check + lint + typecheck + tests
-npm test                    # tests only
-npm run build:web           # production frontend bundle
-npm run lint:fix            # autofix lint
-npm run format              # prettier
-```
-
-The backend suite needs PostgreSQL and Redis from Compose to be up, but it does
-not touch your development data. It runs against its own database — the one in
-`DATABASE_URL` with a `_test` suffix — which is created and migrated
-automatically on the first run, and its own Redis key prefix. Your monitors and
-accounts are left alone, and nothing has to be cleared out between runs.
-
-## Stopping
-
-```bash
-docker compose down         # keeps the data volume
-docker compose down -v      # deletes the database too
-```
-
-`docker compose down` sends SIGTERM, and both the API and the worker shut down
-gracefully: the API drains in-flight requests, the worker finishes the checks it
-has already started, and each then closes Redis and its database pool. The
-worker gets a longer grace period than Docker's 10-second default, because a
-check in flight may be sitting on a monitor's full timeout.
-
-## Layout
-
-```
-apps/api        Express API and the BullMQ worker
-apps/api/Dockerfile   image for the API, the worker and the migration job
-apps/web        React frontend
-apps/web/Dockerfile   image for the Vite dev server
-apps/web/Dockerfile.prod  production image: static build served by Nginx
-apps/web/nginx.conf   Nginx config for that image (SPA fallback, caching, /api proxy)
-packages/shared Config loading and environment validation
-migrations      node-pg-migrate migrations
-docker-compose.yml    the five-service local development stack
-docker-compose.prod.yml  the production stack (npm run prod:up)
-.env.production.example  template for .env.production
-scripts/deploy.sh     build, roll out and verify on the production host
-.github/workflows     ci.yml (checks every PR), deploy.yml (deploys main to EC2)
-```
-
-Environment variables are declared and validated in
-`packages/shared/src/config.ts`; the application refuses to start if any value
-is missing or malformed. `.env.example` is the template and the only env file
-in Git.
-
-CI/CD deployment verified on AWS EC2.
+Deep Rathod · [@deeprathod-fullstack](https://github.com/deeprathod-fullstack)
