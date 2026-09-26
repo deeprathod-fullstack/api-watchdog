@@ -1,0 +1,123 @@
+# Deploy main to the production EC2 host over SSH.
+#
+# The runner builds nothing and holds no code. It opens one SSH session to the
+# EC2 host, which fast-forwards its own checkout to main and runs
+# scripts/deploy.sh: build the images there, roll them out with Compose, and
+# verify health. The run fails if the new version does not become healthy.
+#
+# No AWS credentials are involved: GitHub only holds an SSH key that can log in
+# as ec2-user. Production secrets (.env.production) exist only on the host and
+# never pass through GitHub.
+#
+# One-time setup (key pair, authorized_keys, secrets) is in README "Deployment".
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Manual run from the Actions tab, e.g. to redeploy after fixing the host.
+  workflow_dispatch:
+
+# The job needs no GitHub token access at all: it never checks out the code,
+# and the EC2 host fetches main with its own read-only deploy key.
+permissions: {}
+
+# One deployment at a time, and never cancel one halfway: an interrupted
+# rollout can leave some containers on the new version and some on the old.
+# A newer push waits for the running deploy, then deploys the latest main.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Automatic deploys on push are switched on only when the repository
+    # variable DEPLOY_ON_PUSH is "true" (Settings -> Secrets and variables ->
+    # Actions -> Variables). Until then a push to main deploys nothing, and a
+    # deploy happens only when someone runs this workflow by hand.
+    if: github.event_name == 'workflow_dispatch' || vars.DEPLOY_ON_PUSH == 'true'
+    runs-on: ubuntu-latest
+    # Covers building both images on the host plus the health wait.
+    timeout-minutes: 30
+
+    steps:
+      - name: Check that the deployment secrets are set
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          missing=0
+          for name in EC2_HOST EC2_USER EC2_SSH_PRIVATE_KEY EC2_KNOWN_HOSTS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret ${name} is not set"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Install the SSH key and the pinned host key
+        env:
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          # Written with printf and a trailing newline: an OpenSSH private key
+          # without its final newline is rejected as "invalid format".
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # The EC2 host's own public key, captured on the host itself. With
+          # StrictHostKeyChecking=yes below, ssh refuses to connect to anything
+          # that does not present exactly this key — so a hijacked IP or DNS
+          # entry cannot receive the session.
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy on the EC2 host
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        # The heredoc is quoted ('REMOTE'), so nothing in it is expanded on the
+        # runner; it runs as a script on the host. The requested commit is
+        # passed as $1 only to be reported alongside what was deployed.
+        run: |
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 \
+            "${EC2_USER}@${EC2_HOST}" \
+            bash -s -- "$GITHUB_SHA" <<'REMOTE'
+          set -euo pipefail
+          requested="$1"
+          cd ~/api-watchdog
+
+          # Refuse to deploy over hand edits to tracked files: a fast-forward
+          # would either fail on them or silently keep them running. Untracked
+          # files (.env.production is gitignored) are not affected.
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "[deploy] FAILED: tracked files are modified on the host:" >&2
+            git status --short --untracked-files=no >&2
+            exit 1
+          fi
+
+          previous="$(git rev-parse --short HEAD)"
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          current="$(git rev-parse --short HEAD)"
+          echo "[deploy] ${previous} -> ${current} (workflow commit ${requested:0:7})"
+
+          # The script from the commit just pulled, so a change to it takes
+          # effect in the same deployment that ships it.
+          exec bash scripts/deploy.sh
+          REMOTE
+
+      - name: Remove the SSH key from the runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

@@ -6,8 +6,8 @@ and open an incident when one starts failing.
 **Stack:** React + TypeScript (Vite) · Node.js + Express · PostgreSQL · Redis +
 BullMQ · npm workspaces.
 
-> This README covers local development and the production stack run locally.
-> AWS deployment, API reference and screenshots are still to be written.
+> This README covers local development, the production stack, and deployment
+> to EC2. API reference and screenshots are still to be written.
 
 ## Prerequisites
 
@@ -271,6 +271,204 @@ docker run --rm -p 127.0.0.1:8080:8080 api-watchdog-web:prod
 Pages and client-side routes work. `/api/*` returns 502 after the resolver's
 5-second timeout, because outside Compose there is no Docker DNS and no API.
 
+## Deployment (EC2 via GitHub Actions)
+
+Production runs the stack above on one EC2 host (Amazon Linux 2023), from a
+clone of this repository at `~/api-watchdog`. The workflow
+`.github/workflows/deploy.yml` deploys the current `main` to it over SSH.
+
+```
+push to main / manual run
+  │
+  ▼
+GitHub Actions runner ── SSH, dedicated key, pinned host key ──▶ EC2 (ec2-user)
+  (holds no code, no AWS credentials)                              │
+                                                                   ├─ git pull --ff-only origin main
+                                                                   │    (host's own read-only deploy key)
+                                                                   └─ bash scripts/deploy.sh
+                                                                        build images on the host
+                                                                        docker compose up -d
+                                                                        wait for health, check HTTP
+```
+
+The runner never checks out the code and has no GitHub token permissions. It
+opens one SSH session. The host fast-forwards its checkout to `main`, then runs
+the `scripts/deploy.sh` from that commit, so a change to the script ships with
+the deploy that uses it. `.env.production` exists only on the host and never
+passes through GitHub. No AWS credentials are involved.
+
+### Two SSH keys, two directions
+
+| Key                     | Direction              | Lives                                                | Can do                       |
+| ----------------------- | ---------------------- | ---------------------------------------------------- | ---------------------------- |
+| EC2 GitHub deploy key   | EC2 → GitHub           | private key on EC2; public key in the repo's Deploy keys (read-only) | fetch this repository        |
+| GitHub Actions deploy key | GitHub Actions → EC2 | private key in the `EC2_SSH_PRIVATE_KEY` secret; public key in EC2 `~/.ssh/authorized_keys` | log in to EC2 as `ec2-user` |
+
+They are deliberately separate. Each can be revoked without breaking the other,
+and a leak of one grants only its own direction. The Actions key is used for
+nothing else.
+
+**Treat the Actions key as root on the host.** `ec2-user` is in the `docker`
+group, and Docker access is equivalent to root. Anyone who holds that key can
+do anything on the machine.
+
+### Repository secrets and variable
+
+Set under **Settings → Secrets and variables → Actions**. Values never go in Git.
+
+| Name                  | Kind     | Value                                                                        |
+| --------------------- | -------- | ---------------------------------------------------------------------------- |
+| `EC2_HOST`            | secret   | the EC2 public IP or DNS name, exactly as written in `EC2_KNOWN_HOSTS`       |
+| `EC2_USER`            | secret   | `ec2-user`                                                                   |
+| `EC2_SSH_PRIVATE_KEY` | secret   | the whole private key file, including the `BEGIN` / `END` lines              |
+| `EC2_KNOWN_HOSTS`     | secret   | the host's public key line, captured on the host (step 3 below)              |
+| `DEPLOY_ON_PUSH`      | variable | `true` to deploy automatically on every push to `main`; unset means manual only |
+
+The workflow checks that all four secrets are set, and fails with the missing
+name if one isn't.
+
+### One-time setup
+
+**1. Create the GitHub Actions key pair** on your own machine, not on EC2:
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "github-actions-deploy@api-watchdog" -f ./gha_deploy_key
+```
+
+This creates `gha_deploy_key` (private) and `gha_deploy_key.pub` (public). The
+key has no passphrase because the workflow cannot type one. The GitHub secret
+store is what protects it.
+
+**2. Authorize it on EC2.** Over your existing SSH session, append the public
+key to `~/.ssh/authorized_keys` with the `restrict` prefix. That disables port,
+agent and X11 forwarding and terminal allocation for this key. Running commands
+still works, and that is all the workflow needs.
+
+```bash
+# on EC2, pasting the one line from gha_deploy_key.pub:
+echo 'restrict ssh-ed25519 AAAA...your-public-key... github-actions-deploy@api-watchdog' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Do not reuse the host's existing GitHub deploy key, and do not add
+`gha_deploy_key.pub` to GitHub.
+
+**3. Capture the host key on the host itself**, for `EC2_KNOWN_HOSTS`:
+
+```bash
+# on EC2, replacing <EC2_HOST> with the exact value you will put in EC2_HOST:
+echo "<EC2_HOST> $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
+```
+
+Reading it from the host over a session you already trust is the point. Running
+`ssh-keyscan` from elsewhere would record whatever answered at that address. The
+workflow connects with `StrictHostKeyChecking=yes`, so it refuses any host that
+does not present exactly this key.
+
+**4. Check the key works** from your machine:
+
+```bash
+ssh -i ./gha_deploy_key -o IdentitiesOnly=yes ec2-user@<EC2_HOST> 'cd ~/api-watchdog && git status -sb'
+```
+
+The output should show `## main...origin/main` and no modified files.
+
+**5. Store the secrets.** Add them as described above, pasting the whole content
+of `gha_deploy_key` into `EC2_SSH_PRIVATE_KEY`. Then **delete the local private
+key file**: GitHub now holds the only copy you need, and a replacement is one
+`ssh-keygen` away.
+
+**6. Security group.** SSH (port 22) must be reachable from GitHub-hosted
+runners. Their addresses are many and they change, so in practice port 22 is
+open to the internet and the protection is key-only authentication. Confirm on
+the host that password login is off: `sudo sshd -T | grep -i passwordauthentication`
+must print `passwordauthentication no`. Port 80 is the only other
+inbound rule the stack needs. PostgreSQL, Redis and the API publish no ports at
+all.
+
+**7. First deploy by hand**, then decide on automatic deploys:
+
+- Go to **Actions → Deploy → Run workflow**, or run
+  `gh workflow run deploy.yml --ref main`.
+- Once a manual run has succeeded, set the repository variable
+  `DEPLOY_ON_PUSH` to `true`. Every push to `main` then deploys.
+
+Whichever branch you pick in the Run workflow form, the host always deploys
+`origin/main`.
+
+### What a deployment does and verifies
+
+1. **Host checkout.** The run refuses to deploy if tracked files have been
+   edited on the host. It then runs `git fetch origin main`,
+   `git checkout main` and `git pull --ff-only origin main`. A diverged history
+   fails the run instead of being merged.
+2. **Preflight.** `.env.production` must exist, and the Compose file must
+   resolve with it, so a missing variable is caught before anything changes.
+3. **Rollback copy.** If the running api and web are both healthy, their images
+   are tagged `:prod-previous`. A stack that is already unhealthy never
+   overwrites the last good copy.
+4. **Build** both images on the host. **A build failure stops here, with the
+   running containers untouched.**
+5. **`docker compose up -d`.** Migrations run first. Only services whose image
+   or configuration changed are recreated. Never `down`: the site stays up
+   during the build, and volumes are never at risk.
+6. **Verification**, within 180 seconds:
+   - `api` and `web` report healthy
+   - the worker is running and has not restarted
+   - from the host, `GET /` and `GET /dashboard` return 200 with the app shell
+   - `GET /api/auth/me` returns 401 `unauthenticated`, which proves the path
+     host port → Nginx → API
+
+Any failure prints container status and recent logs of `migrate`, `api`,
+`worker` and `web`, and fails the run. These logs never contain secrets or
+request headers.
+
+Deployments never run in parallel, and a running one is never cancelled. A push
+made during a deploy waits, then deploys the latest `main`.
+
+### When a deployment fails
+
+There is no automatic rollback yet. After step 5, a failure means some services
+may already run the new version.
+
+- **Preferred:** fix or revert the commit on `main`, then deploy again.
+- **Emergency, on the host:** return to the previous images without building:
+
+  ```bash
+  cd ~/api-watchdog
+  docker tag api-watchdog-api:prod-previous api-watchdog-api:prod
+  docker tag api-watchdog-web:prod-previous api-watchdog-web:prod
+  docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build
+  ```
+
+  This restores the code, not the database. A migration that already ran stays
+  applied, which is why migrations must remain backward-compatible.
+
+`bash scripts/deploy.sh` can also be run by hand on the host, from
+`~/api-watchdog`.
+
+### Current limitations
+
+- **Images are built on the EC2 host.** Each deploy spends the host's CPU and
+  memory on `npm ci` and compilation while it is also serving traffic. On a
+  small instance that is slow, and it can run out of memory.
+- **Deploy does not wait for CI.** On a push to `main` both workflows start
+  together. Changes normally reach `main` through pull requests where CI has
+  already passed, but a direct push could deploy a failing commit.
+- **Brief API interruption.** Replacing the single api container can fail
+  requests for about a second.
+- **No HTTPS yet.** See the warning in "Production stack".
+- Port 22 is open to the internet, as described in step 6.
+
+### Future improvements
+
+- Build the images in GitHub Actions and push them to a registry (GHCR or ECR).
+  The host would then only pull and restart: faster, predictable, and no build
+  load on the server. Rollback becomes "run the previous tag".
+- Deploy only after CI has passed on the same commit.
+- A GitHub environment with required reviewers, for an approval step.
+- Replace inbound SSH with AWS Systems Manager, which closes port 22.
+
 ## Checks
 
 ```bash
@@ -314,6 +512,8 @@ migrations      node-pg-migrate migrations
 docker-compose.yml    the five-service local development stack
 docker-compose.prod.yml  the production stack (npm run prod:up)
 .env.production.example  template for .env.production
+scripts/deploy.sh     build, roll out and verify on the production host
+.github/workflows     ci.yml (checks every PR), deploy.yml (deploys main to EC2)
 ```
 
 Environment variables are declared and validated in
