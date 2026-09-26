@@ -57,5 +57,7 @@ CLAUDE.md
 **/*.log
 Dockerfile
 **/Dockerfile
+Dockerfile.*
+**/Dockerfile.*
 .dockerignore
 docker-compose.yml

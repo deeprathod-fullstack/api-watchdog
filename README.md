@@ -78,6 +78,49 @@ would both try to bind port 3000.
 npm run db:check            # → Connected to database: api_watchdog
 ```
 
+## Production frontend image
+
+The frontend has two Dockerfiles, one for each job:
+
+| File                      | What it runs                        | Used by                     |
+| ------------------------- | ----------------------------------- | --------------------------- |
+| `apps/web/Dockerfile`     | Vite dev server, HMR, `/api` proxy  | `docker compose up`         |
+| `apps/web/Dockerfile.prod`| Nginx serving the static build      | deployment (built manually) |
+
+Compose only uses the development image, so the production one cannot change
+how local development works.
+
+`Dockerfile.prod` is a **multi-stage build**. The first stage starts from Node,
+runs `npm ci`, then `npm run build:web`, which writes the static bundle to
+`apps/web/dist`. The second stage starts again from a clean
+`nginx-unprivileged` image and copies in only that `dist/` directory and
+`apps/web/nginx.conf`. Only the last stage becomes the image. Node, npm,
+`node_modules` and the source are all left behind in the build stage, which
+brings the image down from about 780 MB to about 80 MB. Nginx runs as a
+non-root user on port 8080.
+
+`nginx.conf` does three things:
+
+- **SPA fallback.** A path that is not a real file (`/login`, `/dashboard`,
+  `/monitors/42/history`, …) gets `index.html`, so a refresh or a pasted link
+  reaches React Router instead of an Nginx 404.
+- **Caching.** Files under `/assets/` have content hashes in their names and are
+  cached for a year. `index.html` is never cached, so a new deploy is picked up
+  straight away. A missing asset is a real 404, never HTML.
+- **No API.** `/api/*` returns 404. This image does not proxy to the backend.
+  How production requests reach the API has not been decided yet.
+
+Build and run it locally:
+
+```bash
+docker build -f apps/web/Dockerfile.prod -t api-watchdog-web:prod .
+docker run --rm -p 127.0.0.1:8080:8080 api-watchdog-web:prod
+```
+
+Then open <http://localhost:8080>. Pages load and client-side routes work, but
+login and data calls fail, because nothing answers `/api` in this setup. That is
+expected until production API routing is in place.
+
 ## Checks
 
 ```bash
@@ -114,6 +157,8 @@ apps/api        Express API and the BullMQ worker
 apps/api/Dockerfile   image for the API, the worker and the migration job
 apps/web        React frontend
 apps/web/Dockerfile   image for the Vite dev server
+apps/web/Dockerfile.prod  production image: static build served by Nginx
+apps/web/nginx.conf   Nginx config for that image (SPA fallback, caching)
 packages/shared Config loading and environment validation
 migrations      node-pg-migrate migrations
 docker-compose.yml    the five-service local stack
