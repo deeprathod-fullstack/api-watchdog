@@ -164,10 +164,50 @@ future refactors and for interviews.
   HMR would silently never fire. Off by default so host development does not pay
   the idle CPU cost.
 
-Known gap, deliberately not fixed here: Express `trust proxy` is unset, so with
-the frontend proxying through a container every request appears to come from one
-address and the in-memory rate limits become effectively global. Changing it
-changes application behaviour and belongs to its own decision.
+The `trust proxy` gap noted here originally is resolved; see the production
+stack below.
+
+### Production stack (phase 3, decided)
+
+- **Same-origin API routing.** Nginx in the `web` container serves the static
+  build at `/` and proxies `/api/*` to `api:3000`. The bundle keeps relative
+  `/api` paths and `VITE_API_BASE_URL` stays empty, so there is no separate API
+  origin and no CORS configuration.
+- **Separate `docker-compose.prod.yml`, not an override** of the dev file.
+  Almost everything in the dev file is something production must not have, and
+  removing it through an override is harder to read than stating the stack.
+  `name: api-watchdog-prod` isolates its containers, network and volumes from
+  development.
+- **Only `web` publishes a port.** `127.0.0.1:8080` locally, `0.0.0.0:80` on EC2
+  via `WEB_BIND`/`WEB_PORT`. The API, PostgreSQL and Redis are internal only.
+- **`app.set('trust proxy', 1)`, never `true`.** Behind Nginx every request
+  comes from one address, which would make the IP rate limits global. One hop
+  reads only the X-Forwarded-For entry Nginx appended; `true` would let a
+  client pick its own bucket. It is safe only because the API is reachable
+  solely through Nginx. A load balancer in front makes it `2`.
+  `apps/api/test/trust-proxy.test.ts` fails if it is removed or set to `true`.
+- **Nginx resolves `api` per request** (`resolver 127.0.0.11`, variable
+  upstream). A literal `proxy_pass` caches the IP at startup, so recreating the
+  api container would leave Nginx on a stale address, and the image would no
+  longer start outside Compose.
+- **Redis uses AOF on a volume.** Redis is not a source of truth, but schedules
+  are rebuilt from PostgreSQL only at API startup. A Redis-only restart without
+  persistence would stop all checking until the API restarted. Eviction stays
+  `noeviction`, which BullMQ requires.
+- **Secrets in a gitignored `.env.production`**, passed with `--env-file`. The
+  file holds only per-deployment values; the Compose file builds
+  `DATABASE_URL` from `POSTGRES_*` and fixes `REDIS_URL`, and `:?` makes a
+  missing value fail before anything starts. Each service gets only the
+  variables it needs. The `prod:*` npm scripts always pass both `-f` and
+  `--env-file`, because a bare `docker compose` would fall back to the dev
+  `.env`.
+- **The API image is reused unchanged** for migrate, api and worker, tagged
+  `:prod`. Slimming it (multi-stage, devDependencies out) is deferred; it needs
+  a decision about where `node-pg-migrate`, currently a devDependency, lives.
+- **Log rotation** (`json-file`, 3 × 10 MB) on every service, so a long-running
+  host cannot fill its disk with logs.
+- **Not yet decided:** HTTPS (required before real public use), where images
+  are built (on EC2 or in CI with a registry), database backups.
 
 ## Development phases
 

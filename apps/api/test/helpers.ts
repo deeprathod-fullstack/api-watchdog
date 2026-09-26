@@ -68,6 +68,7 @@ const unusedExecutor: CheckExecutor = {
 };
 
 export interface TestAppOverrides {
+  authRateLimiter?: RequestHandler;
   checkExecutor?: CheckExecutor;
   manualCheckRateLimiter?: RequestHandler;
   /** Defaults to a no-op, so CRUD tests need no running Redis. */
@@ -82,7 +83,7 @@ export function buildTestApp(
   return createApp({
     config,
     db,
-    authRateLimiter: passthroughRateLimiter,
+    authRateLimiter: overrides.authRateLimiter ?? passthroughRateLimiter,
     monitorRateLimiter: passthroughRateLimiter,
     manualCheckRateLimiter:
       overrides.manualCheckRateLimiter ?? passthroughRateLimiter,

@@ -6,8 +6,8 @@ and open an incident when one starts failing.
 **Stack:** React + TypeScript (Vite) · Node.js + Express · PostgreSQL · Redis +
 BullMQ · npm workspaces.
 
-> This README currently covers local development only. Architecture, API
-> reference, deployment and screenshots are still to be written.
+> This README covers local development and the production stack run locally.
+> AWS deployment, API reference and screenshots are still to be written.
 
 ## Prerequisites
 
@@ -79,28 +79,180 @@ would both try to bind port 3000.
 npm run db:check            # → Connected to database: api_watchdog
 ```
 
-## Production frontend image
+## Production stack
 
-The frontend has two Dockerfiles, one for each job:
+`docker-compose.prod.yml` runs the whole system the way it runs in production:
+a static frontend behind Nginx, compiled Node processes, no dev servers, no
+source mounts, and exactly one published port. It runs locally the same way it
+will run on the server.
 
-| File                      | What it runs                        | Used by                     |
-| ------------------------- | ----------------------------------- | --------------------------- |
-| `apps/web/Dockerfile`     | Vite dev server, HMR, `/api` proxy  | `docker compose up`         |
-| `apps/web/Dockerfile.prod`| Nginx serving the static build      | deployment (built manually) |
+> **HTTPS is required before real public use.** This stack serves plain HTTP.
+> Login sends a password and every API call carries a bearer token, and over
+> HTTP anyone on the network path can read both. Loopback-only local testing is
+> fine; a public deployment is not, until TLS is in front of it.
 
-Compose only uses the development image, so the production one cannot change
-how local development works.
+### Architecture
 
-`Dockerfile.prod` is a **multi-stage build**. The first stage starts from Node,
-runs `npm ci`, then `npm run build:web`, which writes the static bundle to
-`apps/web/dist`. The second stage starts again from a clean
+```
+Browser
+  │  http://127.0.0.1:8080 locally  ·  port 80 on EC2
+  ▼
+web  (Nginx, :8080) ─── the only published port
+  ├── /        → React static files (SPA fallback to index.html)
+  └── /api/*   → api:3000
+                   │
+                   ├──▶ postgres:5432   (data: named volume)
+                   └──▶ redis:6379      (queue: named volume, AOF)
+                             ▲
+worker ──────────────────────┘  consumes check jobs, writes results to postgres
+
+migrate  runs the migrations once, exits, and api + worker start only after it
+         succeeds
+```
+
+The browser only ever talks to Nginx. The frontend keeps making the same
+relative `/api/...` requests as in development, so there is no separate API
+origin and the API needs no CORS configuration.
+
+### Development vs production Compose
+
+|                  | `docker-compose.yml` (development) | `docker-compose.prod.yml` (production)  |
+| ---------------- | ---------------------------------- | --------------------------------------- |
+| Compose project  | `api-watchdog`                     | `api-watchdog-prod`                     |
+| Frontend         | Vite dev server, HMR, source mount | Nginx serving the static build          |
+| Published ports  | 5173, 3000, 5432, 6379 (loopback)  | **8080 only** (web)                     |
+| Env file         | `.env` (host-facing URLs)          | `.env.production` (secrets only)        |
+| Image tags       | `:dev`                             | `:prod`                                 |
+| Redis            | in memory                          | AOF persistence on a volume             |
+| Log files        | Docker default (unbounded)         | rotated: 3 × 10 MB per container        |
+| Env per service  | whole `.env` to every app service  | only the variables each service needs   |
+
+The project name prefixes every container, network and volume, so the two
+stacks share nothing — not even the database volume — and can run side by
+side.
+
+### Environment
+
+```bash
+cp .env.production.example .env.production
+```
+
+Then replace every placeholder:
+
+- `POSTGRES_PASSWORD`: `openssl rand -hex 32`. Hex because the password is
+  embedded in `DATABASE_URL`, where `@ / : #` would break the URL.
+- `JWT_SECRET`: `openssl rand -base64 48`. Never reuse a development value.
+- `WEB_BIND` / `WEB_PORT`: `127.0.0.1` / `8080` locally; `0.0.0.0` / `80` on
+  EC2.
+
+`.env.production` is gitignored and never enters an image (`.dockerignore`
+excludes it). It holds only what differs per deployment: `DATABASE_URL`,
+`REDIS_URL`, `NODE_ENV=production` and `PORT` are set in the Compose file and
+point at the internal service names, never at localhost. A missing value stops
+`docker compose` with an error naming it, before anything starts.
+
+`POSTGRES_USER` / `POSTGRES_PASSWORD` only take effect when the database volume
+is first created. Changing them later does not change an existing database.
+
+### Running it
+
+Always through the npm scripts. Each one passes `docker-compose.prod.yml` and
+`--env-file .env.production` explicitly. Without `--env-file`, Compose would
+silently read the development `.env` instead, with development credentials.
+
+```bash
+npm run prod:up             # build images, then start everything in the background
+npm run prod:ps             # status and health of each service
+npm run prod:logs           # all logs; add -- -f api worker to follow two
+npm run prod:down           # stop and remove containers; volumes (data) are kept
+```
+
+Then open <http://127.0.0.1:8080>. A quick end-to-end check of the proxy:
+
+```bash
+curl -i http://127.0.0.1:8080/api/auth/me
+# 401 {"error":{"code":"unauthenticated",...}} — Express answered via Nginx
+```
+
+To delete the production database too, remove the volumes explicitly:
+`docker compose -f docker-compose.prod.yml --env-file .env.production down -v`.
+
+### Migrations
+
+The one-shot `migrate` service runs `npm run db:migrate` from the API image,
+after PostgreSQL is healthy. `api` and `worker` start only once it has **exited
+successfully**. The API never migrates on startup: replicas would race, and a
+bad migration would turn into a restart loop instead of one readable failure.
+
+It runs on every `prod:up`. With nothing pending it prints
+`No migrations to run!` and exits at once. If a migration fails, api and worker
+stay down, and `npm run prod:logs -- migrate` shows why.
+
+While `migrate` runs during a redeploy, the previous api container may still be
+serving. Migrations must therefore stay backward-compatible with the release
+before them: add a column in one release, drop the old one in a later one.
+
+### Internal networking and the `/api` proxy
+
+Compose puts every service on one private network and makes each service name a
+hostname on it. The api reaches `postgres:5432` and `redis:6379`, and Nginx
+reaches `api:3000`. Only `web` publishes a port. The API, PostgreSQL and Redis
+cannot be reached from the host at all; for a database shell use
+`docker compose -f docker-compose.prod.yml --env-file .env.production exec postgres psql -U watchdog api_watchdog`.
+
+`apps/web/nginx.conf` proxies `/api/*` to `http://api:3000`, keeping the full
+path (Express mounts its routes under `/api`), and sets `Host`,
+`X-Forwarded-For` and `X-Forwarded-Proto`. The upstream is resolved through
+Docker's DNS at `127.0.0.11` on every request, re-checked every 10 seconds,
+rather than once at startup. That has two effects:
+
+- recreating the api container, which gives it a new IP, never leaves Nginx
+  sending traffic to the old address;
+- the image still starts on its own, outside Compose. There, `/api/*` returns
+  502 (after a 5-second resolver timeout) and the static site works normally.
+
+Express is configured with `trust proxy = 1`. It believes exactly one proxy hop
+— Nginx — and takes the client address from the entry Nginx appends to
+`X-Forwarded-For`, ignoring anything the client wrote there itself. Without it,
+every request would appear to come from Nginx, and the per-IP login limit would
+become one bucket for everybody. This is only safe because nothing can reach the
+API except through Nginx; a load balancer in front would make it `2`.
+
+### Redis persistence (AOF)
+
+Redis is not a source of truth here. Jobs carry only a monitor id, and the
+worker reads the monitor back from PostgreSQL. But the API rebuilds schedules
+from PostgreSQL **only when the API starts**. Without persistence, a restart of
+Redis alone would drop every schedule, and nothing would be checked until
+someone restarted the API. With `--appendonly yes` and a volume, schedules
+survive a Redis restart. Eviction stays at Redis's default, `noeviction`, which
+BullMQ requires.
+
+### Shutdown
+
+`npm run prod:down` sends SIGTERM to each container:
+
+- The API drains in-flight requests. It has 15s before Docker force-kills it;
+  its own timeout is 10s.
+- The worker finishes checks already running. It has 35s; its own timeout is
+  30s.
+- Nginx is stopped with SIGQUIT, its graceful shutdown.
+
+Data lives in the `api-watchdog-prod_postgres_data` and
+`api-watchdog-prod_redis_data` volumes, which `down` keeps.
+
+### The production frontend image
+
+`apps/web/Dockerfile.prod` is a **multi-stage build**. The first stage starts
+from Node, runs `npm ci`, then `npm run build:web`, which writes the static
+bundle to `apps/web/dist`. The second stage starts again from a clean
 `nginx-unprivileged` image and copies in only that `dist/` directory and
 `apps/web/nginx.conf`. Only the last stage becomes the image. Node, npm,
 `node_modules` and the source are all left behind in the build stage, which
 brings the image down from about 780 MB to about 80 MB. Nginx runs as a
 non-root user on port 8080.
 
-`nginx.conf` does three things:
+Besides the proxy, `nginx.conf` handles:
 
 - **SPA fallback.** A path that is not a real file (`/login`, `/dashboard`,
   `/monitors/42/history`, …) gets `index.html`, so a refresh or a pasted link
@@ -108,42 +260,16 @@ non-root user on port 8080.
 - **Caching.** Files under `/assets/` have content hashes in their names and are
   cached for a year. `index.html` is never cached, so a new deploy is picked up
   straight away. A missing asset is a real 404, never HTML.
-- **No API yet.** `/api/*` returns 404 rather than falling through to
-  `index.html`. See below for why.
 
-### Production API routing: same origin
-
-In production the browser talks to one origin, the frontend Nginx, which
-routes by path:
-
-```
-Browser
-  ↓
-Frontend Nginx
-  ├── /       → React static files
-  └── /api/*  → Node/Express API
-```
-
-The frontend keeps making relative `/api/...` requests, exactly as in
-development. There is no separate API origin, so the API needs no CORS
-configuration.
-
-The `/api` proxy is **not in this image yet**. `proxy_pass` has to name the
-API's hostname, and Nginx refuses to start if that name does not resolve. When
-the image runs on its own there is no API host, so adding the proxy now would
-break standalone testing, or else need environment-specific config. It arrives
-with the deployment work, once there is a real topology to point it at.
-
-Build and run it locally:
+The image can still be tested on its own, without the rest of the stack:
 
 ```bash
 docker build -f apps/web/Dockerfile.prod -t api-watchdog-web:prod .
 docker run --rm -p 127.0.0.1:8080:8080 api-watchdog-web:prod
 ```
 
-Then open <http://localhost:8080>. Pages load and client-side routes work, but
-login and data calls fail, because nothing answers `/api` in this setup. That is
-expected until the `/api` proxy is added.
+Pages and client-side routes work. `/api/*` returns 502 after the resolver's
+5-second timeout, because outside Compose there is no Docker DNS and no API.
 
 ## Checks
 
@@ -182,10 +308,12 @@ apps/api/Dockerfile   image for the API, the worker and the migration job
 apps/web        React frontend
 apps/web/Dockerfile   image for the Vite dev server
 apps/web/Dockerfile.prod  production image: static build served by Nginx
-apps/web/nginx.conf   Nginx config for that image (SPA fallback, caching)
+apps/web/nginx.conf   Nginx config for that image (SPA fallback, caching, /api proxy)
 packages/shared Config loading and environment validation
 migrations      node-pg-migrate migrations
-docker-compose.yml    the five-service local stack
+docker-compose.yml    the five-service local development stack
+docker-compose.prod.yml  the production stack (npm run prod:up)
+.env.production.example  template for .env.production
 ```
 
 Environment variables are declared and validated in
