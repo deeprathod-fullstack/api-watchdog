@@ -559,3 +559,5 @@ Environment variables are declared and validated in
 `packages/shared/src/config.ts`; the application refuses to start if any value
 is missing or malformed. `.env.example` is the template and the only env file
 in Git.
+
+CI/CD deployment verified on AWS EC2.
