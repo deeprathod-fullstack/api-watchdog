@@ -74,10 +74,10 @@ generator.
 - Manual "check now"
 - Background scheduled checks
 - Stored check history (status, HTTP status, response time, error, timestamp)
-- Uptime percentage and response-time history
+- Response time recorded for every check and shown per check
 - Incidents on consecutive failures, resolved on recovery
 - Dashboard: monitor counts by state, latest response time, recent failures,
-  uptime, response-time chart, check history, incident history
+  check history, incident history
 
 **Incident threshold is configurable, default 3 consecutive failures.** Do not
 hard-code 3 as the project rule. Exact open/resolve/counter semantics
@@ -92,6 +92,10 @@ design** — do not decide them unilaterally.
 - Non-`GET` request behavior in V1 (the `method` field exists for future use)
 - Public status pages; multi-region checks
 - Multi-user teams, orgs, roles
+- Uptime percentage and response-time charts. Dropped from the MVP and the
+  Definition of Done by owner decision on 2026-09-27, a deliberate deviation
+  from the spec. The raw data (every check's result and response time) is
+  already stored, so this is a future improvement, not a data-model change.
 
 **Anti-scope (explicitly not this project)**
 
@@ -256,7 +260,7 @@ unfamiliar technology **before** using it.
 1. **MVP** — React dashboard, auth, monitor CRUD, public GET checks, manual
    check, PostgreSQL storage
 2. **Automated monitoring** — Redis, BullMQ, worker, scheduled checks, history,
-   uptime, incident detection
+   incident detection
 3. **Production engineering** — Dockerize services, Compose, env config, GitHub
    Actions CI + deployment, AWS deployment
 4. **Production quality** — CloudWatch/logging, error handling, retry policy, DB
@@ -340,7 +344,9 @@ Condensed from spec §20–21. The project is done when:
 - [ ] Manual check works
 - [ ] Active monitors are checked automatically on a schedule
 - [ ] Check results are stored in PostgreSQL
-- [ ] Dashboard shows health and response-time information
+- [ ] Dashboard shows health and response-time information (latest response
+      time per monitor; per-check times in history. No uptime percentage or
+      chart: see Out of scope)
 - [ ] Failures create incidents; recovery resolves them
 - [ ] Runs locally via Docker Compose
 - [ ] CI runs in GitHub Actions
